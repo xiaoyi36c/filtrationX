@@ -1,6 +1,6 @@
 # KOL 浮卡实施规划（上游计划目标 02）
 
-> 状态：M1、M2 已实现；M3（可选 GraphQL 精确增强）/ M4（打磨）规划中。
+> 状态：M1、M2 已实现；M4 已完成（数据源标注 / 采样管理 / 冷启动提示）；M3（可选 GraphQL 精确增强）规划中。
 > 目标（来自上游 roadmap 02）：一看就知道这个 KOL 靠谱不 —— 鼠标停在 @handle 上 → 浮卡：账号年龄、原创比、主题集中度、交互质量。
 
 ## 一、交互设计
@@ -32,12 +32,19 @@
 
 | 模块 | 职责 | 状态 |
 | --- | --- | --- |
-| `lib/kol-card.ts` | 浮卡 UI（单例 overlay、定位、主题、行渲染、四档着色） | M1 ✅ / M2 ✅ |
+| `lib/kol-card.ts` | 浮卡 UI（单例 overlay、定位、主题、行渲染、四档着色、数据源标注、冷启动提示） | M1 ✅ / M2 ✅ / M4 ✅ |
 | `entrypoints/content.ts` | mouseover 委托 + 450ms hover-intent + 桥数据装配 + scan 采样钩子 | M1 ✅ / M2 ✅ |
 | `lib/settings.ts` | `kolCardEnabled` 开关（默认开，同时门控采样） | M1 ✅ |
-| `lib/kol-signals.ts` | 采样缓存（TTL 3 天 / statusId 去重 / 词频）+ 主题熵 + 综合可信分 | M2 ✅ |
-| `test/kol-signals.test.ts` | 分词 / 去重 / 集中度 / 可信分 / TTL 回读测试 | M2 ✅ |
-| `lib/x-graphql.ts` + `lib/read-limiter.ts` | UserTweets 读封装 + 读限速 | M3 |
+| `lib/kol-signals.ts` | 采样缓存（TTL 3 天 / statusId 去重 / 词频）+ 综合可信分 + 存储侧统计/清空（M4，含 onChanged 内存同步） | M2 ✅ / M4 ✅ |
+| `entrypoints/options/App.tsx` `KolSignalsManager` | 采样画像统计 + 一键清空（danger 确认弹窗） | M4 ✅ |
+| `test/kol-signals.test.ts` | 分词 / 去重 / 集中度 / 可信分 / TTL 回读 / 统计清空测试 | M2 ✅ / M4 ✅ |
+| `lib/x-graphql.ts` + `lib/read-limiter.ts` | UserTweets 读封装 + 读限速（唯一遗留：精确单条交互质量） | M3 |
+
+## M4 落地说明
+
+- **数据源标注**：页脚 `档案实时 + 采样N条 · 不联网` 区分 L1 档案数据与 L2 累积采样；原创比行自带样本量。
+- **冷启动提示**：样本不足时显示「采样不足 N/5 条 · 浏览中累积」，不再静默缺行。
+- **采样管理入口**：设置 → 检测规则 → KOL 悬浮卡下方，展示账号数 / 样本量 / 最近采样，清空走 danger 确认；内容脚本内存经 storage.onChanged 同步清空（否则防抖 flush 会写回）。
 
 ## 五、风险与约束
 

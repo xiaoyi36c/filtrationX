@@ -13,6 +13,11 @@ import {
   summarize,
 } from "../../lib/backup";
 import { BRAND } from "../../lib/brand";
+import {
+  clearKolSignals,
+  type KolSignalsStats,
+  kolSignalsStats,
+} from "../../lib/kol-signals";
 import { CATEGORY_ZH, SPAM_CATEGORIES, type SpamCategory, categoryFromCode } from "../../lib/category";
 import {
   type CustomRule,
@@ -2475,8 +2480,9 @@ function DetectionRulesSection({
         on={st.kolCardEnabled}
         onChange={(v) => save("kolCardEnabled", v)}
         label="KOL 悬浮卡（目标 02）"
-        hint="悬停在 @handle 上显示账号年龄、粉丝规模、互动效率等本地信号——全部读自页面自身数据，零联网查询。原创比与主题集中度将随采样逐步上线"
+        hint="悬停在 @handle 上显示账号年龄、粉丝规模、互动效率与本地采样结论（原创比 / 主题集中度 / 综合可信分）——全部读自页面自身数据与本地累积采样，零联网查询"
       />
+      <KolSignalsManager />
       <Toggle
         on={st.ruleTelemetry}
         onChange={(v) => save("ruleTelemetry", v)}
@@ -3724,6 +3730,80 @@ export function App() {
         </div>
       </aside>
       <Active />
+    </div>
+  );
+}
+
+/**
+ * KOL 采样数据管理（M4）：统计当前累积的采样画像并支持一键清空。
+ * 设置页与内容脚本不在同一上下文——统计直接读 chrome.storage，内容脚本
+ * 内存 map 由 kol-signals 的 storage.onChanged 监听同步清空，不会写回。
+ */
+function KolSignalsManager() {
+  const [stats, setStats] = useState<KolSignalsStats | null>(null);
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [cleared, setCleared] = useState(false);
+  const refresh = () => {
+    void kolSignalsStats()
+      .then(setStats)
+      .catch(() => setStats(null));
+  };
+  useEffect(() => {
+    refresh();
+    try {
+      const fn = () => refresh();
+      chrome.storage.onChanged.addListener(fn);
+      return () => chrome.storage.onChanged.removeListener(fn);
+    } catch {
+      return undefined;
+    }
+  }, []);
+  const latest =
+    stats && stats.latestTs > 0 ? new Date(stats.latestTs).toLocaleDateString() : null;
+  return (
+    <div className="mt-3 overflow-hidden rounded-lg border border-border">
+      <div className="flex flex-wrap items-center justify-between gap-3 bg-card-hi px-3 py-2.5">
+        <div className="min-w-0 text-[12px] leading-relaxed text-fg-2">
+          采样画像：
+          <b className="font-mono tabular-nums text-fg">{stats?.accounts ?? 0}</b> 个账号（
+          <b className="font-mono tabular-nums text-fg">{stats?.labeled ?? 0}</b> 个已够样本量）
+          · 累计 <b className="font-mono tabular-nums text-fg">{stats?.samples ?? 0}</b> 条
+          {latest && <span className="ml-2 text-fg-3">最近采样 {latest}</span>}
+          <div className="text-[11px] text-fg-3">
+            仅本机存储，只存词频计数不存推文原文；清空后原创比 / 主题集中度将从零重新累积
+          </div>
+        </div>
+        <div className="flex flex-none items-center gap-2">
+          {cleared && <span className="text-[12px] text-ok">已清空</span>}
+          <Btn tier="danger" onClick={() => setConfirmOpen(true)}>
+            清空采样
+          </Btn>
+        </div>
+      </div>
+      <ConfirmDialog
+        open={confirmOpen}
+        title="清空 KOL 采样数据"
+        variant="danger"
+        body={
+          <>
+            这会删除本机累积的全部账号采样画像（原创比 / 主题集中度 / 可信分中的采样部分）。
+            <ul className="my-2 list-inside list-disc text-fg-3">
+              <li>档案实时数据（账号年龄、粉丝数等）不受影响，悬浮卡仍正常显示</li>
+              <li>采样随浏览从零重新累积，约需刷到每个账号 5 条以上推文</li>
+              <li>仅本机操作，全程无网络请求</li>
+            </ul>
+          </>
+        }
+        onConfirm={() => {
+          void clearKolSignals().then(() => {
+            setCleared(true);
+            setConfirmOpen(false);
+            refresh();
+            setTimeout(() => setCleared(false), 2600);
+          });
+        }}
+        onCancel={() => setConfirmOpen(false)}
+      />
     </div>
   );
 }

@@ -168,18 +168,87 @@ export interface KolSignalsRead {
   topicFocus?: number;
 }
 
-/** 读某账号的采样结论。样本不足的字段不返回（卡片就不渲染那行）。 */
+/** 读某账号的采样结论。结论字段样本不足就不返回（卡片渲染冷启动提示）；
+ *  sampledTweets 只要采过就返回，供卡片标注数据源与冷启动进度。 */
 export function kolSignalsFor(handle: string): KolSignalsRead {
   const e = signals?.get(keyOf(handle));
   if (!e) return {};
   const out: KolSignalsRead = {};
+  if (e.total > 0) out.sampledTweets = e.total;
   if (e.total >= MIN_TWEETS_FOR_RATIO) {
     out.originalRatio = e.original / e.total;
-    out.sampledTweets = e.total;
   }
   const focus = topicFocusOf(e);
   if (focus !== undefined) out.topicFocus = focus;
   return out;
+}
+
+// ---- 设置页：采样数据统计与清空 (M4) ----
+
+export interface KolSignalsStats {
+  /** 有采样记录的账号数。 */
+  accounts: number;
+  /** 累计采样的推文条数（全部账号相加）。 */
+  samples: number;
+  /** 样本量达到可报告原创比的账号数。 */
+  labeled: number;
+  /** 最近一次采样时间（epoch ms，0 = 无）。 */
+  latestTs: number;
+}
+
+/** 读存储侧统计——设置页与内容脚本不在一个上下文，内存 map 看不到，
+ *  必须直接读 chrome.storage。 */
+export async function kolSignalsStats(): Promise<KolSignalsStats> {
+  const out: KolSignalsStats = { accounts: 0, samples: 0, labeled: 0, latestTs: 0 };
+  try {
+    const got = await chrome.storage.local.get(STORE_KEY);
+    const raw = got[STORE_KEY] as Record<string, KolSignalEntry> | undefined;
+    if (!raw) return out;
+    for (const [key, e] of Object.entries(raw)) {
+      if (key === "__proto__" || key === "constructor" || key === "toString") continue;
+      if (!e || typeof e !== "object") continue;
+      out.accounts += 1;
+      out.samples += e.total ?? 0;
+      if ((e.total ?? 0) >= MIN_TWEETS_FOR_RATIO) out.labeled += 1;
+      if ((e.updatedAt ?? 0) > out.latestTs) out.latestTs = e.updatedAt ?? 0;
+    }
+  } catch {
+    /* storage 不可用 → 全零 */
+  }
+  return out;
+}
+
+/** 清空全部采样画像（设置页入口）。内容脚本的内存 map 由下面的
+ *  storage.onChanged 监听同步清空，不会在下次 flush 时写回。 */
+export async function clearKolSignals(): Promise<void> {
+  try {
+    await chrome.storage.local.remove(STORE_KEY);
+  } catch {
+    /* non-fatal */
+  }
+}
+
+// 设置页清空后同步内容脚本内存：不监听的话，防抖中的 flush 会把旧数据
+// 原样写回，「清空」就成了摆设。自己的 flush 也会触发本监听——重建出的
+// map 与内存一致，等价于 no-op。
+try {
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area !== "local" || !(STORE_KEY in changes)) return;
+    const next = changes[STORE_KEY]?.newValue as Record<string, KolSignalEntry> | undefined;
+    if (!next || Object.keys(next).length === 0) {
+      signals = new Map();
+      return;
+    }
+    const m = new Map<string, KolSignalEntry>();
+    for (const [k, e] of Object.entries(next)) {
+      if (k === "__proto__" || k === "constructor" || k === "toString") continue;
+      if (!e || typeof e !== "object" || typeof e.handle !== "string") continue;
+      m.set(k, e);
+    }
+    signals = m;
+  });
+} catch {
+  /* 测试环境无 chrome — 静默 */
 }
 
 /** 本地分词：拉丁词（≥3 字符）+ CJK 滑动二元组。够用来区分「满屏同一话术

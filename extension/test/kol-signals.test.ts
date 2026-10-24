@@ -1,9 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  clearKolSignals,
+  kolSignalsFor,
+  kolSignalsStats,
   MIN_TWEETS_FOR_RATIO,
   type KolSignalEntry,
-  kolSignalsFor,
   noteKolSample,
   tokenize,
   trustAssessment,
@@ -19,6 +21,9 @@ function installChrome() {
       local: {
         get: async (k: string) => ({ [k]: bag[k] }),
         set: async (obj: Record<string, unknown>) => Object.assign(bag, obj),
+        remove: async (...keys: string[]) => {
+          for (const k of keys) delete bag[k];
+        },
       },
     },
   };
@@ -160,6 +165,39 @@ test("storage roundtrip: warm reloads live entries, drops expired", async () => 
     assert.equal(r.sampledTweets, 8);
     assert.equal(r.originalRatio, 0.75);
     assert.equal(kolSignalsFor("oldacct").originalRatio, undefined, "expired entry ignored");
+  } finally {
+    env.restore();
+  }
+});
+
+test("stats and clear work against storage (options-page side)", async () => {
+  const env = installChrome();
+  try {
+    const DAY = 86_400_000;
+    const now = Date.now();
+    const entry = (handle: string, total: number, updatedAt: number): KolSignalEntry => ({
+      handle,
+      total,
+      original: Math.floor(total / 2),
+      seen: [],
+      tokens: {},
+      tokenTotal: 0,
+      updatedAt,
+    });
+    env.bag["xss:kol:v1"] = {
+      "a": entry("a", 9, now - DAY),
+      "b": entry("b", 3, now),
+    };
+    const s = await kolSignalsStats();
+    assert.equal(s.accounts, 2);
+    assert.equal(s.samples, 12);
+    assert.equal(s.labeled, 1, "only the 9-sample account reached the reportable bar");
+    assert.equal(s.latestTs, now);
+    await clearKolSignals();
+    assert.equal(env.bag["xss:kol:v1"], undefined);
+    const after = await kolSignalsStats();
+    assert.equal(after.accounts, 0);
+    assert.equal(after.samples, 0);
   } finally {
     env.restore();
   }

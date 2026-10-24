@@ -12,7 +12,7 @@
 // 祖先的 fixed 定位问题）、视口翻转定位、rAF 跟随、120ms 延迟隐藏 +
 // 卡片悬停保活、CSS 变量主题（明暗 + X 三主题）。
 
-import { type TrustResult } from "./kol-signals";
+import { MIN_TWEETS_FOR_RATIO, type TrustResult } from "./kol-signals";
 import { closeActiveBadgePopover, detectXTheme } from "./ui";
 
 export interface KolCardData {
@@ -224,6 +224,10 @@ function render(data: KolCardData): string {
     typeof data.topicFocus === "number"
       ? `<div class="kol-row"><span class="k">主题集中度</span><span>${(data.topicFocus * 100).toFixed(0)}%</span></div>`
       : "",
+    // 冷启动：采样还没攒够时说明原因，而不是静默少两行让人以为坏了。
+    typeof data.originalRatio !== "number" && typeof data.sampledTweets === "number"
+      ? `<div class="kol-row"><span class="k">原创比 · 主题集中度</span><span class="k">采样不足 ${data.sampledTweets}/${MIN_TWEETS_FOR_RATIO} 条 · 浏览中累积</span></div>`
+      : "",
   ]
     .filter(Boolean)
     .join("");
@@ -241,7 +245,7 @@ function render(data: KolCardData): string {
     ${kv("均赞/推", perTweet)}
   </div>
   ${m2rows ? `<div class="kol-rows">${m2rows}</div>` : ""}
-  <div class="kol-foot"><span>filtrationX 本地数据 · 不联网查询</span><a href="https://x.com/${encodeURIComponent(data.handle)}" target="_blank" rel="noopener">查看主页 ↗</a></div>`;
+  <div class="kol-foot"><span>filtrationX · 档案实时${typeof data.sampledTweets === "number" ? ` + 采样${data.sampledTweets}条` : ""} · 不联网</span><a href="https://x.com/${encodeURIComponent(data.handle)}" target="_blank" rel="noopener">查看主页 ↗</a></div>`;
 }
 
 /** Show (or move/re-render) the card anchored to `el`. Idempotent per frame. */
