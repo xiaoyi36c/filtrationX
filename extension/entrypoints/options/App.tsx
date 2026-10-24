@@ -13,6 +13,12 @@ import {
   summarize,
 } from "../../lib/backup";
 import { BRAND } from "../../lib/brand";
+const KOL_CARD_LOCALES: { value: "auto" | "zh" | "en" | "ja"; label: string }[] = [
+  { value: "auto", label: "跟随 X 界面" },
+  { value: "zh", label: "中文" },
+  { value: "en", label: "English" },
+  { value: "ja", label: "日本語" },
+];
 import {
   clearKolSignals,
   type KolSignalsStats,
@@ -2483,6 +2489,24 @@ function DetectionRulesSection({
         label="KOL 悬浮卡（目标 02）"
         hint="悬停在 @handle 上显示账号年龄、粉丝规模、互动效率与本地采样结论（原创比 / 主题集中度 / 综合可信分）——全部读自页面自身数据与本地累积采样，零联网查询"
       />
+      <div className="flex flex-wrap items-center gap-2 pl-1">
+        <span className="text-[12px] text-fg-2">卡片语言</span>
+        {KOL_CARD_LOCALES.map((l) => (
+          <button
+            key={l.value}
+            type="button"
+            onClick={() => save("kolCardLocale", l.value)}
+            className={`rounded-md border px-2.5 py-1 text-[12px] transition ${
+              st.kolCardLocale === l.value
+                ? "border-fg bg-card-hi text-fg"
+                : "border-border-2 text-fg-3 hover:border-fg-3 hover:text-fg-2"
+            }`}
+          >
+            {l.label}
+          </button>
+        ))}
+        <span className="text-[11px] text-fg-3">「跟随 X 界面」按 x.com 左下角设置的语言显示</span>
+      </div>
       <Toggle
         on={st.kolGraphqlEnabled}
         onChange={(v) => save("kolGraphqlEnabled", v)}

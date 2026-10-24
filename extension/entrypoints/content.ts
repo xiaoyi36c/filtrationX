@@ -656,6 +656,7 @@ export default defineContentScript({
               statusesCount: u.statusesCount,
               favouritesCount: u.favouritesCount,
               whitelisted,
+              locale: settings.kolCardLocale,
               viewerFollowing: u.viewerFollowing,
               // M2: 本地采样结论（原创比 / 主题集中度）；M3 精确值覆盖之。
               ...sampled,

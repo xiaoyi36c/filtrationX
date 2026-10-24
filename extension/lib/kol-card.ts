@@ -37,6 +37,8 @@ export interface KolCardData {
   trust?: TrustResult;
   /** M3: GraphQL 精确互动中位数（可选开关，缓存 3 天）。 */
   precise?: PreciseMetrics;
+  /** M4: 卡片语言。"auto" 跟随 X 界面（默认），zh/en/ja 钉死。 */
+  locale?: "auto" | "zh" | "en" | "ja";
   viewerFollowing?: boolean;
 }
 
@@ -106,7 +108,9 @@ function esc(s: string): string {
 
 type KolLocale = "zh" | "en" | "ja";
 
-function detectKolLocale(): KolLocale {
+/** 卡片语言：用户可钉死 zh/en/ja；"auto"（默认）跟随 X 的 UI 语言。 */
+function detectKolLocale(pref: string | undefined): KolLocale {
+  if (pref === "zh" || pref === "en" || pref === "ja") return pref;
   const lang = (document.documentElement.lang || "").toLowerCase();
   if (lang.startsWith("zh")) return "zh";
   if (lang.startsWith("ja")) return "ja";
@@ -317,7 +321,7 @@ function scheduleHide(): void {
 }
 
 function render(data: KolCardData): string {
-  const loc = detectKolLocale();
+  const loc = detectKolLocale(data.locale);
   const t = I18N[loc];
   const name = data.displayName?.trim();
   const age = fmtAge(data.accountAgeDays, loc);
