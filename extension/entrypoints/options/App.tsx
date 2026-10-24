@@ -2326,11 +2326,57 @@ function DetectionRulesSection({
   const [syncMsg, setSyncMsg] = useState<{ text: string; ok: boolean } | null>(null);
   // 鉴权状态：未登录时禁止一切上传/同步（按钮仍可点，但会给出登录指引）。
   const [ghLoginName, setGhLoginName] = useState<string | null>(null);
+  // 二开：登录后自动发现账号可写的仓库列表——owner 自动填登录名，repo 变
+  // 下拉选择，不再手填（检索失败时回退手输，不影响使用）。
+  const [ghRepos, setGhRepos] = useState<string[] | null>(null);
 
   useEffect(() => {
     void getRulesSyncConfig().then(setSyncCfg);
     void getGhLogin().then((l) => setGhLoginName(l || null));
   }, []);
+
+  /** 登录变化后自动发现：GET /user/repos（含 push 权限的），预选逻辑：
+   *  已保存的 repo 优先 → 二开仓库 filtrationX → 最近更新的第一个。 */
+  useEffect(() => {
+    if (!ghLoginName) {
+      setGhRepos(null);
+      return;
+    }
+    let alive = true;
+    void (async () => {
+      try {
+        const token = await getGhToken();
+        if (!token) return;
+        const resp = await fetch(
+          "https://api.github.com/user/repos?per_page=100&sort=pushed&affiliation=owner,collaborator",
+          { headers: { authorization: `token ${token}`, accept: "application/vnd.github+json" } },
+        );
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        const repos = (await resp.json()) as {
+          name: string;
+          permissions?: { push?: boolean };
+        }[];
+        const writable = repos
+          .filter((r) => r.permissions?.push !== false)
+          .map((r) => r.name);
+        if (!alive) return;
+        setGhRepos(writable);
+        const cur = await getRulesSyncConfig();
+        const next: RulesSyncConfig = { ...cur, owner: ghLoginName };
+        if (!next.repo) {
+          next.repo = writable.includes("filtrationX") ? "filtrationX" : (writable[0] ?? "");
+        }
+        if (next.owner !== cur.owner || next.repo !== cur.repo) {
+          setSyncCfg(await saveRulesSyncConfig(next));
+        }
+      } catch {
+        if (alive) setGhRepos(null); // 发现失败 → 保持手输框
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [ghLoginName]);
 
   useEffect(() => {
     void getStoredList().then((list) => {
@@ -2624,16 +2670,37 @@ function DetectionRulesSection({
           <div className="flex flex-wrap items-center gap-2">
             <input
               value={syncCfg.owner}
-              onChange={(e) => void updateSyncCfg({ owner: e.target.value })}
-              placeholder="owner（如 xiaoyi36c）"
-              className="min-w-[140px] flex-1 rounded-md border border-border-2 bg-transparent px-3 py-1.5 font-mono text-[12.5px] outline-none transition focus:border-accent"
+              readOnly
+              title="自动取自 GitHub 登录账号，无需手填"
+              placeholder="owner（登录后自动填入）"
+              className="min-w-[140px] flex-1 rounded-md border border-border-2 bg-transparent px-3 py-1.5 font-mono text-[12.5px] text-fg-2 outline-none"
             />
-            <input
-              value={syncCfg.repo}
-              onChange={(e) => void updateSyncCfg({ repo: e.target.value })}
-              placeholder="repo（如 filtrationX）"
-              className="min-w-[140px] flex-1 rounded-md border border-border-2 bg-transparent px-3 py-1.5 font-mono text-[12.5px] outline-none transition focus:border-accent"
-            />
+            {ghRepos && ghRepos.length > 0 ? (
+              <select
+                value={syncCfg.repo}
+                onChange={(e) => void updateSyncCfg({ repo: e.target.value })}
+                title="自动列出你账号下有写权限的仓库（按最近更新排序）"
+                className="min-w-[140px] flex-1 rounded-md border border-border-2 bg-transparent px-3 py-1.5 font-mono text-[12.5px] outline-none transition focus:border-accent"
+              >
+                {!ghRepos.includes(syncCfg.repo) && syncCfg.repo && (
+                  <option key="current" value={syncCfg.repo}>
+                    {syncCfg.repo}（当前保存）
+                  </option>
+                )}
+                {ghRepos.map((n) => (
+                  <option key={n} value={n}>
+                    {n}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <input
+                value={syncCfg.repo}
+                onChange={(e) => void updateSyncCfg({ repo: e.target.value })}
+                placeholder={ghLoginName ? "检索仓库中…或手动填写 repo" : "repo（如 filtrationX）"}
+                className="min-w-[140px] flex-1 rounded-md border border-border-2 bg-transparent px-3 py-1.5 font-mono text-[12.5px] outline-none transition focus:border-accent"
+              />
+            )}
             <input
               value={syncCfg.branch}
               onChange={(e) => void updateSyncCfg({ branch: e.target.value })}
