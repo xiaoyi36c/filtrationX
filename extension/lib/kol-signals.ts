@@ -294,6 +294,9 @@ export interface TrustInput {
   statusesCount?: number;
   favouritesCount?: number;
   originalRatio?: number;
+  /** M3：GraphQL 单条获赞中位数（配合 followersCount 算真交互质量）。
+   *  提供时优先于 favouritesCount 总数近似。 */
+  medianLikes?: number;
 }
 
 export interface TrustResult {
@@ -325,8 +328,21 @@ function networkScore(followers?: number, following?: number): number {
   return 12;
 }
 
-/** 互动形态：赞远超粉丝 = 阈值刷赞；大号几乎没有获赞 = 买粉死号。 */
-function engagementScore(fav?: number, followers?: number, statuses?: number): number {
+/** 互动形态：优先用 M3 的单条获赞中位数 / 粉丝数（刷不动的真值）；
+ *  没有精确值时退回 M1 近似（赞总数比粉丝数）。 */
+function engagementScore(
+  fav?: number,
+  followers?: number,
+  statuses?: number,
+  medianLikes?: number,
+): number {
+  if (typeof medianLikes === "number" && typeof followers === "number" && followers > 0) {
+    const per = medianLikes / followers;
+    if (per >= 0.02) return 85; // 互动活跃的真实账号
+    if (per >= 0.005) return 70;
+    if (per >= 0.001) return 45; // 买粉嫌疑：粉丝多、单条几乎没人理
+    return 12; // 买粉死号
+  }
   if (typeof fav !== "number" || typeof followers !== "number" || followers <= 0) return 50;
   if (fav / followers > 20) return 10;
   if (
@@ -352,7 +368,12 @@ function originalScore(r: number | undefined): number {
 export function trustAssessment(input: TrustInput): TrustResult {
   const age = ageScore(input.accountAgeDays);
   const network = networkScore(input.followersCount, input.followingCount);
-  const engagement = engagementScore(input.favouritesCount, input.followersCount, input.statusesCount);
+  const engagement = engagementScore(
+    input.favouritesCount,
+    input.followersCount,
+    input.statusesCount,
+    input.medianLikes,
+  );
   const original = originalScore(input.originalRatio);
   const score = Math.round(0.3 * age + 0.25 * network + 0.25 * engagement + 0.2 * original);
   const tier: TrustTier = score >= 75 ? "safe" : score >= 55 ? "ok" : score >= 35 ? "warn" : "risk";

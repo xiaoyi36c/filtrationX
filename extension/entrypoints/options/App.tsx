@@ -18,6 +18,7 @@ import {
   type KolSignalsStats,
   kolSignalsStats,
 } from "../../lib/kol-signals";
+import { clearPreciseCache } from "../../lib/x-graphql";
 import { CATEGORY_ZH, SPAM_CATEGORIES, type SpamCategory, categoryFromCode } from "../../lib/category";
 import {
   type CustomRule,
@@ -2482,6 +2483,12 @@ function DetectionRulesSection({
         label="KOL 悬浮卡（目标 02）"
         hint="悬停在 @handle 上显示账号年龄、粉丝规模、互动效率与本地采样结论（原创比 / 主题集中度 / 综合可信分）——全部读自页面自身数据与本地累积采样，零联网查询"
       />
+      <Toggle
+        on={st.kolGraphqlEnabled}
+        onChange={(v) => save("kolGraphqlEnabled", v)}
+        label="精确互动质量（GraphQL · 默认关）"
+        hint="悬停 KOL 卡时按需拉取该账号最近 20 条推文，计算单条获赞/转推/回复中位数 vs 粉丝数——买粉死号与刷赞号一眼现形，原创比也升级为官方标记的精确值。会消耗你的 X 会话请求配额：全局串行限速（≥400ms 间隔），命中限流冷却 10 分钟，结果缓存 3 天，一天正常使用仅几十次请求。关闭后卡片回退到本地近似指标"
+      />
       <KolSignalsManager />
       <Toggle
         on={st.ruleTelemetry}
@@ -3796,6 +3803,7 @@ function KolSignalsManager() {
         }
         onConfirm={() => {
           void clearKolSignals().then(() => {
+            void clearPreciseCache();
             setCleared(true);
             setConfirmOpen(false);
             refresh();

@@ -1,6 +1,6 @@
 # KOL 浮卡实施规划（上游计划目标 02）
 
-> 状态：M1、M2、M4 已全部实现（数据源标注 / 采样管理 / 冷启动提示 / i18n / 可信分分项透明度）；仅剩 M3（可选 GraphQL 精确增强，默认关）。
+> 状态：M1、M2、M3、M4 全部实现 ✅（P2 完整收尾）。M3 为可选增强，设置页默认关。
 > 目标（来自上游 roadmap 02）：一看就知道这个 KOL 靠谱不 —— 鼠标停在 @handle 上 → 浮卡：账号年龄、原创比、主题集中度、交互质量。
 
 ## 一、交互设计
@@ -17,8 +17,8 @@
 | 互动效率（M1 近似） | 赞粉比 `favouritesCount/followersCount`、均赞/推 `favouritesCount/statusesCount` | 同上 | M1 ✅ 零 API |
 | 原创比 | 原创推文 / 总采样推文（statusId 去重；socialContext 转推行记给转推者） | M2 ✅：scan 累积采样（`lib/kol-signals.ts`）；M3：UserTweets GraphQL `legacy.retweeted` | M2 ✅ / M3 |
 | 主题集中度 | 最近采样推文文本本地分词（CJK 二元组 + 拉丁词）→ 词的推文覆盖度（文档频率）→ 随机两条推文的期望共享词数 / 单条平均词数，只存计数不存原文 | M2 ✅：scan 推文文本采样；M3：UserTweets | M2 ✅ / M3 |
-| 综合可信分 | 年龄 30% + 关注网络形态 25% + 互动形态 25% + 原创比 20%，缺项回中性；四档着色（靠谱/一般/存疑/高风险） | `lib/kol-signals.ts` trustAssessment | M2 ✅ |
-| 精确交互质量 | 单条推文 reply/retweet/like 中位数 vs 粉丝数 | M3：UserTweets GraphQL | M3 |
+| 综合可信分 | 年龄 30% + 关注网络形态 25% + 互动形态 25% + 原创比 20%，缺项回中性；四档着色（靠谱/一般/存疑/高风险）；卡片展示分项 | `lib/kol-signals.ts` trustAssessment | M2 ✅ / M4 ✅ |
+| 精确交互质量 | 单条推文 reply/retweet/like 中位数 vs 粉丝数（买粉死号/刷赞号现形），互动分优先用它 | M3 ✅：UserTweets GraphQL（默认关，hover 按需 + 限速 + 缓存 3 天） | M3 ✅ |
 
 关键事实：X 的 MAIN-world React fiber 里免费携带 `accountCreatedAt / followersCount / followingCount / statusesCount / favouritesCount`（`lib/detect.ts` readFiberUser），经 `entrypoints/x-bridge.content.ts` stamp 到 DOM 后，isolated world 零成本读取——M1 的全部指标因此零网络请求。
 
@@ -38,7 +38,8 @@
 | `lib/kol-signals.ts` | 采样缓存（TTL 3 天 / statusId 去重 / 词频）+ 综合可信分 + 存储侧统计/清空（M4，含 onChanged 内存同步） | M2 ✅ / M4 ✅ |
 | `entrypoints/options/App.tsx` `KolSignalsManager` | 采样画像统计 + 一键清空（danger 确认弹窗） | M4 ✅ |
 | `test/kol-signals.test.ts` | 分词 / 去重 / 集中度 / 可信分 / TTL 回读 / 统计清空测试 | M2 ✅ / M4 ✅ |
-| `lib/x-graphql.ts` + `lib/read-limiter.ts` | UserTweets 读封装 + 读限速（唯一遗留：精确单条交互质量） | M3 |
+| `lib/x-graphql.ts` + `lib/read-limiter.ts` | UserTweets 读封装（解析容错 / 精确中位数 / 3 天缓存 / queryId 失效会话禁用）+ 读限速（串行 400ms + 429 冷却 10 分钟） | M3 ✅ |
+| `test/x-graphql.test.ts` | 限速串行 / 冷却 / 解析双入口形状 / 中位数与原创比测试 | M3 ✅ |
 
 ## M4 落地说明
 

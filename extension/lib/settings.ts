@@ -57,6 +57,7 @@ export interface Settings {
   ruleTelemetry: boolean; // anonymously report OFFICIAL rule hits (spam account identity + matched rule only, never the user's own info) so the maintainer can review & publish them
   ruleHitsAutoAct: boolean; // opt-in: keyword-rule hits follow the per-category action (incl. X mute/block) instead of being capped at the local hide. Still gated by autoTierMode + reply-scope
   kolCardEnabled: boolean; // KOL hover card (目标02): hovering @handles shows account age, follower scale and interaction-efficiency signals — all read locally from the page, zero API
+  kolGraphqlEnabled: boolean; // M3 (目标02): opt-in GraphQL UserTweets fetch on hover for precise per-tweet engagement medians — consumes the user's X session quota, so DEFAULT OFF
   followingWhitelist: boolean; // auto-add accounts the viewer follows to the LOCAL whitelist (never badged / auto-processed); entries live in xss:whitelist:local
 }
 
@@ -86,6 +87,7 @@ export const DEFAULTS: Settings = {
   ruleTelemetry: true,
   ruleHitsAutoAct: false,
   kolCardEnabled: true,
+  kolGraphqlEnabled: false,
   followingWhitelist: true,
 };
 

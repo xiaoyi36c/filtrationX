@@ -13,6 +13,7 @@
 // 卡片悬停保活、CSS 变量主题（明暗 + X 三主题）。
 
 import { MIN_TWEETS_FOR_RATIO, type TrustResult } from "./kol-signals";
+import type { PreciseMetrics } from "./x-graphql";
 import { closeActiveBadgePopover, detectXTheme } from "./ui";
 
 export interface KolCardData {
@@ -34,6 +35,8 @@ export interface KolCardData {
   topicFocus?: number;
   /** M2: 综合可信分（lib/kol-signals.ts trustAssessment）。 */
   trust?: TrustResult;
+  /** M3: GraphQL 精确互动中位数（可选开关，缓存 3 天）。 */
+  precise?: PreciseMetrics;
   viewerFollowing?: boolean;
 }
 
@@ -123,6 +126,12 @@ interface KolStrings {
   whitelist: string;
   registered: string;
   viewProfile: string;
+  /** M3：精确互动中位数行。 */
+  median: string;
+  likes: string;
+  rts: string;
+  replies: string;
+  preciseN: (n: number) => string;
   tiers: Record<TrustResult["tier"], string>;
   /** 可信分四个子维度的短标签（分项透明度）。 */
   parts: { age: string; network: string; engagement: string; original: string };
@@ -147,6 +156,11 @@ const I18N: Record<KolLocale, KolStrings> = {
     whitelist: "白名单",
     registered: "注册",
     viewProfile: "查看主页 ↗",
+    median: "互动中位数",
+    likes: "赞",
+    rts: "转",
+    replies: "评",
+    preciseN: (n) => `（精确 ${n} 条）`,
     tiers: { safe: "靠谱", ok: "一般", warn: "存疑", risk: "高风险" },
     parts: { age: "年龄", network: "关注网", engagement: "互动", original: "原创" },
     footer: "档案实时",
@@ -168,6 +182,11 @@ const I18N: Record<KolLocale, KolStrings> = {
     whitelist: "Whitelist",
     registered: "joined",
     viewProfile: "View profile ↗",
+    median: "Median engagement",
+    likes: "L",
+    rts: "RT",
+    replies: "R",
+    preciseN: (n) => ` (${n} precise)`,
     tiers: { safe: "solid", ok: "mixed", warn: "shaky", risk: "risky" },
     parts: { age: "age", network: "graph", engagement: "engage", original: "orig." },
     footer: "live profile",
@@ -189,6 +208,11 @@ const I18N: Record<KolLocale, KolStrings> = {
     whitelist: "ホワイトリスト",
     registered: "登録",
     viewProfile: "プロフィール ↗",
+    median: "反応中央値",
+    likes: "いいね",
+    rts: "RT",
+    replies: "返信",
+    preciseN: (n) => `（${n}件精確）`,
     tiers: { safe: "信頼", ok: "普通", warn: "要注意", risk: "リスク" },
     parts: { age: "年齢", network: "関係", engagement: "反応", original: "オリ" },
     footer: "プロフ即時",
@@ -340,8 +364,12 @@ function render(data: KolCardData): string {
     data.trust
       ? `<div class="kol-row"><span class="k">${t.trust}</span><span style="color:${TIER_COLOR[data.trust.tier]}"><b>${data.trust.score}</b>/100 · ${t.tiers[data.trust.tier]}</span></div>${partsLine ? `<div class="kol-row"><span class="k"></span><span class="k" style="font-size:10.5px">${partsLine}</span></div>` : ""}`
       : "",
+    // M3：精确互动中位数（存在即优先展示——这是刷不动的真值）。
+    data.precise
+      ? `<div class="kol-row"><span class="k">${t.median}</span><span>${t.likes} ${data.precise.medianLikes} · ${t.rts} ${data.precise.medianRts} · ${t.replies} ${data.precise.medianReplies}<span class="k">${t.preciseN(data.precise.tweets)}</span></span></div>`
+      : "",
     typeof data.originalRatio === "number"
-      ? `<div class="kol-row"><span class="k">${t.original}</span><span>${(data.originalRatio * 100).toFixed(0)}%<span class="k">${t.sampled(data.sampledTweets ?? 0)}</span></span></div>`
+      ? `<div class="kol-row"><span class="k">${t.original}</span><span>${(data.originalRatio * 100).toFixed(0)}%<span class="k">${data.precise ? t.preciseN(data.precise.tweets) : t.sampled(data.sampledTweets ?? 0)}</span></span></div>`
       : "",
     typeof data.topicFocus === "number"
       ? `<div class="kol-row"><span class="k">${t.focus}</span><span>${(data.topicFocus * 100).toFixed(0)}%</span></div>`

@@ -26,6 +26,7 @@ import {
   trustAssessment,
   warmKolSignals,
 } from "../lib/kol-signals";
+import { fetchPreciseMetrics, getCachedPrecise } from "../lib/x-graphql";
 import { readBridgeUser } from "../lib/x-user-bridge";
 import { LIST_KEY, WL_KEY } from "../lib/list-sync";
 import { type IndexEntry, isWhitelisted, lookupLocal, warmLocalIndex } from "../lib/local-index";
@@ -555,6 +556,8 @@ export default defineContentScript({
     let kolAnchor: HTMLElement | null = null;
     let kolHandle = "";
     const KOL_HOVER_DELAY_MS = 450;
+    /** M3 在途请求去重：同一账号的卡不会并发拉两次 GraphQL。 */
+    const gqlInFlight = new Set<string>();
     const kolCancel = () => {
       clearTimeout(kolTimer);
       kolTimer = undefined;
@@ -602,7 +605,7 @@ export default defineContentScript({
         hideKolCard();
         kolHandle = handle;
         kolAnchor = nameWrap as HTMLElement;
-        kolTimer = setTimeout(() => {
+        kolTimer = setTimeout(async () => {
           kolTimer = undefined;
           const anchorEl = kolAnchor;
           if (!anchorEl) return;
@@ -625,29 +628,59 @@ export default defineContentScript({
             firstText && !/^@/.test(firstText) && firstText.toLowerCase() !== handle.toLowerCase()
               ? firstText
               : undefined;
-          showKolCard(anchorEl, {
-            handle,
-            displayName,
-            verified: u.isVerified,
-            accountAgeDays: u.accountAgeDays,
-            accountCreatedAt: u.accountCreatedAt,
-            followersCount: u.followersCount,
-            followingCount: u.followingCount,
-            statusesCount: u.statusesCount,
-            favouritesCount: u.favouritesCount,
-            whitelisted,
-            viewerFollowing: u.viewerFollowing,
-            // M2: 本地采样结论（原创比 / 主题集中度 / 综合可信分）。
-            ...kolSignalsFor(handle),
-            trust: trustAssessment({
+          const sampled = kolSignalsFor(handle);
+          let precise = u.userId ? await getCachedPrecise(u.userId) : null;
+          const build = () =>
+            showKolCard(anchorEl, {
+              handle,
+              displayName,
+              verified: u.isVerified,
               accountAgeDays: u.accountAgeDays,
+              accountCreatedAt: u.accountCreatedAt,
               followersCount: u.followersCount,
               followingCount: u.followingCount,
               statusesCount: u.statusesCount,
               favouritesCount: u.favouritesCount,
-              ...kolSignalsFor(handle),
-            }),
-          });
+              whitelisted,
+              viewerFollowing: u.viewerFollowing,
+              // M2: 本地采样结论（原创比 / 主题集中度）；M3 精确值覆盖之。
+              ...sampled,
+              ...(precise ? { precise } : {}),
+              trust: trustAssessment({
+                accountAgeDays: u.accountAgeDays,
+                followersCount: u.followersCount,
+                followingCount: u.followingCount,
+                statusesCount: u.statusesCount,
+                favouritesCount: u.favouritesCount,
+                ...sampled,
+                ...(precise
+                  ? { medianLikes: precise.medianLikes, originalRatio: precise.originalRatio }
+                  : {}),
+              }),
+            });
+          build();
+          // M3：精确指标按需补齐。开关默认关；有缓存/冷却/在途都不再发。
+          // 到达后仅当卡还开着、还停在同一账号时原地重渲染。
+          if (
+            settings.kolGraphqlEnabled &&
+            u.userId &&
+            !precise &&
+            kolCardOpen() &&
+            kolHandle.toLowerCase() === handle.toLowerCase() &&
+            !gqlInFlight.has(u.userId)
+          ) {
+            const uid = u.userId;
+            gqlInFlight.add(uid);
+            try {
+              const r = await fetchPreciseMetrics(uid, handle);
+              if (r.ok) {
+                precise = r.metrics;
+                if (kolCardOpen() && kolHandle.toLowerCase() === handle.toLowerCase()) build();
+              }
+            } finally {
+              gqlInFlight.delete(uid);
+            }
+          }
         }, KOL_HOVER_DELAY_MS);
       },
       true,
