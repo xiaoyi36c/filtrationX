@@ -58,7 +58,7 @@ export interface Settings {
   ruleHitsAutoAct: boolean; // opt-in: keyword-rule hits follow the per-category action (incl. X mute/block) instead of being capped at the local hide. Still gated by autoTierMode + reply-scope
   kolCardEnabled: boolean; // KOL hover card (目标02): hovering @handles shows account age, follower scale and interaction-efficiency signals — all read locally from the page, zero API
   kolGraphqlEnabled: boolean; // M3 (目标02): opt-in GraphQL UserTweets fetch on hover for precise per-tweet engagement medians — consumes the user's X session quota, so DEFAULT OFF
-  kolCardLocale: "auto" | "zh" | "en" | "ja"; // KOL card language: "auto" follows X's UI <html lang>; zh/en/ja pin it (M4 feedback: X-UI-English users want Chinese cards)
+  uiLocale: "auto" | "zh" | "en" | "ja"; // global UI language (popup / badges / X-blocklist page / KOL card); "auto" = BROWSER language, not X.com's (user decision 2026-10-25)
   followingWhitelist: boolean; // auto-add accounts the viewer follows to the LOCAL whitelist (never badged / auto-processed); entries live in xss:whitelist:local
 }
 
@@ -89,7 +89,7 @@ export const DEFAULTS: Settings = {
   ruleHitsAutoAct: false,
   kolCardEnabled: true,
   kolGraphqlEnabled: false,
-  kolCardLocale: "auto",
+  uiLocale: "auto",
   followingWhitelist: true,
 };
 

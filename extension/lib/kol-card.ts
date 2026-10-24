@@ -12,6 +12,7 @@
 // 祖先的 fixed 定位问题）、视口翻转定位、rAF 跟随、120ms 延迟隐藏 +
 // 卡片悬停保活、CSS 变量主题（明暗 + X 三主题）。
 
+import { resolveLocale, type UiLocale } from "./i18n";
 import { MIN_TWEETS_FOR_RATIO, type TrustResult } from "./kol-signals";
 import type { PreciseMetrics } from "./x-graphql";
 import { closeActiveBadgePopover, detectXTheme } from "./ui";
@@ -108,13 +109,9 @@ function esc(s: string): string {
 
 type KolLocale = "zh" | "en" | "ja";
 
-/** 卡片语言：用户可钉死 zh/en/ja；"auto"（默认）跟随 X 的 UI 语言。 */
+/** 卡片语言：跟随全局 uiLocale；"auto"（默认）= 浏览器语言，不是 X.com 的。 */
 function detectKolLocale(pref: string | undefined): KolLocale {
-  if (pref === "zh" || pref === "en" || pref === "ja") return pref;
-  const lang = (document.documentElement.lang || "").toLowerCase();
-  if (lang.startsWith("zh")) return "zh";
-  if (lang.startsWith("ja")) return "ja";
-  return "en";
+  return resolveLocale(pref as UiLocale | undefined);
 }
 
 interface KolStrings {

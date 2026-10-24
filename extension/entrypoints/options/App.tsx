@@ -13,12 +13,7 @@ import {
   summarize,
 } from "../../lib/backup";
 import { BRAND } from "../../lib/brand";
-const KOL_CARD_LOCALES: { value: "auto" | "zh" | "en" | "ja"; label: string }[] = [
-  { value: "auto", label: "跟随 X 界面" },
-  { value: "zh", label: "中文" },
-  { value: "en", label: "English" },
-  { value: "ja", label: "日本語" },
-];
+import { resolveLocale, UI_LOCALES, type UiLocale } from "../../lib/i18n";
 import {
   clearKolSignals,
   type KolSignalsStats,
@@ -60,6 +55,7 @@ import {
   type CategoryAction,
   type Settings,
   getSettings,
+  onSettingsChange,
   setCategoryAction,
   setSetting,
 } from "../../lib/settings";
@@ -647,12 +643,12 @@ function XBlocksPage() {
 
   return (
     <Page
-      title="X 拉黑"
+      title="X 原生拉黑列表"
       sub={`共 ${(data?.count ?? 0).toLocaleString("zh-CN")} 个 · 你 X 账号原生已拉黑的账号（只读同步，仅存本机）· 误拉黑的账号可在右侧「解除拉黑」恢复`}
     >
       <div className="mb-4 flex flex-wrap items-center gap-3">
         <input
-          aria-label="搜索 X 拉黑列表"
+          aria-label="搜索 X 原生拉黑列表"
           value={q}
           onChange={(e) => setQ(e.target.value)}
           placeholder="搜索 @handle / 显示名 / ID"
@@ -2489,23 +2485,8 @@ function DetectionRulesSection({
         label="KOL 悬浮卡（目标 02）"
         hint="悬停在 @handle 上显示账号年龄、粉丝规模、互动效率与本地采样结论（原创比 / 主题集中度 / 综合可信分）——全部读自页面自身数据与本地累积采样，零联网查询"
       />
-      <div className="flex flex-wrap items-center gap-2 pl-1">
-        <span className="text-[12px] text-fg-2">卡片语言</span>
-        {KOL_CARD_LOCALES.map((l) => (
-          <button
-            key={l.value}
-            type="button"
-            onClick={() => save("kolCardLocale", l.value)}
-            className={`rounded-md border px-2.5 py-1 text-[12px] transition ${
-              st.kolCardLocale === l.value
-                ? "border-fg bg-card-hi text-fg"
-                : "border-border-2 text-fg-3 hover:border-fg-3 hover:text-fg-2"
-            }`}
-          >
-            {l.label}
-          </button>
-        ))}
-        <span className="text-[11px] text-fg-3">「跟随 X 界面」按 x.com 左下角设置的语言显示</span>
+      <div className="pl-1 text-[12px] text-fg-3">
+        卡片语言在侧边栏「语言」页统一设置（默认跟随浏览器语言）。
       </div>
       <Toggle
         on={st.kolGraphqlEnabled}
@@ -3573,12 +3554,69 @@ function BackupPage() {
   );
 }
 
+/** 语言（二开 M4.5）：全局 UI 语言独立页。
+ *  "auto" = 浏览器语言（不是 X.com 的语言——用户明确否决过跟随 X）；
+ *  zh/en/ja 钉死。已接入：popup、x.com 徽标与 KOL 悬浮卡、拉黑同步页、
+ *  本页；管理面板其余页面逐步迁移。 */
+function LanguagePage() {
+  const [pref, setPref] = useState<UiLocale>("auto");
+  useEffect(() => {
+    let alive = true;
+    void getSettings().then((s) => {
+      if (alive) setPref(s.uiLocale);
+    });
+    const off = onSettingsChange((s) => setPref(s.uiLocale));
+    return () => {
+      alive = false;
+      off();
+    };
+  }, []);
+  const resolved = resolveLocale(pref);
+  const zhName = (l: UiLocale) =>
+    l === "auto" ? "自动（浏览器语言）" : l === "zh" ? "中文" : l === "en" ? "English" : "日本語";
+  return (
+    <Page
+      title="语言 / Language / 言語"
+      sub="扩展界面语言 · 默认跟随浏览器语言，可手动钉死"
+    >
+      <div className="flex flex-wrap gap-2">
+        {UI_LOCALES.map((l) => (
+          <button
+            key={l.value}
+            type="button"
+            onClick={() => {
+              setPref(l.value);
+              void setSetting("uiLocale", l.value);
+            }}
+            className={`rounded-md border px-3.5 py-2 text-[13px] transition ${
+              pref === l.value
+                ? "border-fg bg-card-hi text-fg"
+                : "border-border-2 text-fg-3 hover:border-fg-3 hover:text-fg-2"
+            }`}
+          >
+            {l.label}
+          </button>
+        ))}
+      </div>
+      <p className="mt-4 text-[12.5px] text-fg-2">
+        当前生效：<b className="text-fg">{zhName(pref === "auto" ? "auto" : resolved)}</b>
+        {pref === "auto" && <span className="ml-1 text-fg-3">（按浏览器语言解析为 {resolved}）</span>}
+      </p>
+      <p className="mt-3 text-[12px] leading-relaxed text-fg-3">
+        覆盖范围：浏览器弹窗（popup）与 x.com 上的 KOL 悬浮卡已支持三语；
+        管理面板其余页面（含本页之外的所有页）仍在逐步迁移中，暂为中文。
+      </p>
+    </Page>
+  );
+}
+
 const TABS = [
   ["overview", "概览", Overview],
   ["blocklist", "处理记录", Blocklist],
-  ["xblocks", "X 拉黑", XBlocksPage],
+  ["xblocks", "拉黑同步", XBlocksPage],
   ["cache", "检测缓存", Cache],
   ["settings", "设置", Settings],
+  ["language", "语言", LanguagePage],
   ["whitelist", "白名单", WhitelistPage],
   ["backup", "备份", BackupPage],
   ["about", "关于", About],
