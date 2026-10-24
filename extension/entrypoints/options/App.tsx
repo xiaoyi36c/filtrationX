@@ -13,7 +13,8 @@ import {
   summarize,
 } from "../../lib/backup";
 import { BRAND } from "../../lib/brand";
-import { resolveLocale, UI_LOCALES, type UiLocale } from "../../lib/i18n";
+import { resolveLocale, tr as trL, UI_LOCALES, type UiLocale } from "../../lib/i18n";
+import { D as UI_D } from "../../lib/ui-strings";
 import {
   clearKolSignals,
   type KolSignalsStats,
@@ -338,6 +339,32 @@ function Btn({
   );
 }
 
+/** 全局文案钩子（二开 M4.5）：跟随设置 uiLocale（auto=浏览器语言）。
+ *  t("key") 取 ui-strings.ts 字典，支持 {var} 插值；缺 key 原样返回。 */
+function useT() {
+  const [pref, setPref] = useState<UiLocale>("auto");
+  useEffect(() => {
+    let alive = true;
+    void getSettings().then((s) => {
+      if (alive) setPref(s.uiLocale);
+    });
+    const off = onSettingsChange((s) => setPref(s.uiLocale));
+    return () => {
+      alive = false;
+      off();
+    };
+  }, []);
+  const loc = resolveLocale(pref);
+  const t = (key: string, vars?: Record<string, string | number>) => {
+    const row = UI_D[key];
+    if (!row) return key;
+    let s = trL(loc, row);
+    if (vars) for (const [k, v] of Object.entries(vars)) s = s.replaceAll(`{${k}}`, String(v));
+    return s;
+  };
+  return { t, loc };
+}
+
 const Page = ({
   title,
   sub,
@@ -562,6 +589,7 @@ function LocalBlocklistCard({ localCount }: { localCount: number }) {
  *  误拉黑的账号可直接「解除拉黑」——走你的 X 登录态调用 X 的
  *  blocks/destroy，与拉黑同一套限速队列（防风控）。 */
 function XBlocksPage() {
+  const { t } = useT();
   const [data, setData] = useState<XBlocksData | null>(null);
   const [sync, setSync] = useState<XBlocksSyncState | null>(null);
   const [q, setQ] = useState("");
@@ -643,23 +671,23 @@ function XBlocksPage() {
 
   return (
     <Page
-      title="X 原生拉黑列表"
-      sub={`共 ${(data?.count ?? 0).toLocaleString("zh-CN")} 个 · 你 X 账号原生已拉黑的账号（只读同步，仅存本机）· 误拉黑的账号可在右侧「解除拉黑」恢复`}
+      title={t("page.xblocks.title")}
+      sub={t("xb.count", { n: (data?.count ?? 0).toLocaleString("en-US") })}
     >
       <div className="mb-4 flex flex-wrap items-center gap-3">
         <input
-          aria-label="搜索 X 原生拉黑列表"
+          aria-label={t("page.xblocks.title")}
           value={q}
           onChange={(e) => setQ(e.target.value)}
-          placeholder="搜索 @handle / 显示名 / ID"
+          placeholder={t("xb.search")}
           className="w-full max-w-[320px] rounded-md border border-border-2 bg-transparent px-3 py-2 text-[13px] outline-none transition focus:border-accent"
         />
         <Btn tier="primary" onClick={() => void start()} disabled={syncBusy || syncing}>
-          {syncing ? "同步中…" : data?.syncedAt ? "重新同步" : "同步拉黑列表"}
+          {syncing ? t("xb.syncing") : data?.syncedAt ? t("xb.resync") : t("xb.syncNow")}
         </Btn>
         {syncing && (
           <span className="text-[12px] text-fg-2">
-            已获取 {sync?.fetched.toLocaleString("zh-CN") ?? 0} 个（{sync?.pages ?? 0} 页）· 保持一个 x.com 标签页打开
+            {t("xb.fetched", { n: sync?.fetched.toLocaleString("en-US") ?? "0", p: sync?.pages ?? 0 })}
           </span>
         )}
         {!syncing && sync?.lastError && (
@@ -670,7 +698,7 @@ function XBlocksPage() {
       {msg && <p className={`mb-4 text-[12px] ${msg.ok ? "text-ok" : "text-danger"}`}>{msg.text}</p>}
       {rows.length === 0 ? (
         <p className="py-10 text-center text-[13px] text-fg-3">
-          {data?.syncedAt ? "没有匹配的账号" : "还没有同步过——点上方「同步拉黑列表」获取你 X 账号过往已拉黑的账号"}
+          {data?.syncedAt ? t("xb.emptyNone") : t("xb.emptyNever")}
         </p>
       ) : (
         <div className="desktop-record-table overflow-x-auto rounded-lg border border-border">
@@ -925,6 +953,7 @@ function ContribCard({
 }
 
 function Overview() {
+  const { t } = useT();
   const [s, setS] = useState<Awaited<ReturnType<typeof getStats>> | null>(null);
   const [bl, setBl] = useState(0);
   const [autoBl, setAutoBl] = useState(0);
@@ -942,7 +971,7 @@ function Overview() {
     getGhLogin().then((v) => setGhLogin(v ?? null));
     void loadLists();
   }, []);
-  if (!s) return <Page title="概览" sub="加载中…" />;
+  if (!s) return <Page title={t("page.overview.title")} sub={t("common.loading")} />;
   const d = s.byLabel;
   const total = Object.values(d).reduce((a, b) => a + b, 0) || 1;
   const seg = (k: string, c: string) =>
@@ -972,21 +1001,21 @@ function Overview() {
     ["o", "other"],
   ];
   return (
-    <Page title="概览" sub="本地统计 · 数据仅存于本机，不含个人隐私信息">
+    <Page title={t("page.overview.title")} sub={t("page.overview.sub")}>
       <ContribCard login={ghLogin} detections={s.detections} blocked={bl} />
       {ls && <ListStatusCard ls={ls} onRefreshed={loadLists} />}
       <LocalBlocklistCard localCount={bl} />
       <BlockQueueCard />
       <div className="overview-stats mb-8 grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-border bg-border lg:grid-cols-4">
-        <Card n={s.detections} l="AI 检测总数" />
-        <Card n={s.cacheHits} l="缓存命中 · 省下的 AI 判定" />
-        <Card n={bl} l={autoBl ? `已处理账号 · 其中自动 ${autoBl.toLocaleString("zh-CN")}` : "已处理账号"} />
-        <Card n={(d.spam ?? 0) + (d.porn_bot ?? 0)} l="判定为垃圾/色情bot" />
+        <Card n={s.detections} l={t("ov.aiTotal")} />
+        <Card n={s.cacheHits} l={t("ov.cacheHits")} />
+        <Card n={bl} l={autoBl ? t("ov.processedAuto", { n: autoBl.toLocaleString("en-US") }) : t("ov.processed")} />
+        <Card n={(d.spam ?? 0) + (d.porn_bot ?? 0)} l={t("ov.spamPorn")} />
       </div>
 
       {ls && ls.black > 0 && (
         <div className="mb-8">
-          <SectionH>公共黑名单构成</SectionH>
+          <SectionH>{t("ov.listMakeup")}</SectionH>
           <div className="my-2 flex h-1.5 overflow-hidden rounded-full bg-card">
             {CAT_ORDER.map(([code, cat]) =>
               ls.catDist[code] ? (
@@ -1018,14 +1047,14 @@ function Overview() {
           <div className="flex items-baseline justify-between">
             <SectionH>自动处理策略</SectionH>
             <a href="?tab=settings" className="text-[12px] text-fg-3 hover:text-fg">
-              调整 →
+              {t("ov.adjust")}
             </a>
           </div>
           <div className="mt-2 flex flex-wrap gap-2">
             {SPAM_CATEGORIES.map((cat) => {
               const act = st.categoryActions[cat] ?? "badge";
               const actZh =
-                act === "badge" ? "仅标记" : act === "hide" ? "本地隐藏" : act === "mute" ? "X 静音" : "X 拉黑";
+                act === "badge" ? t("act.badge") : act === "hide" ? t("act.hide") : act === "mute" ? t("act.mute") : t("act.block");
               return (
                 <span
                   key={cat}
@@ -1042,7 +1071,7 @@ function Overview() {
         </div>
       )}
 
-      <SectionH>检测类别分布</SectionH>
+      <SectionH>{t("ov.catDist")}</SectionH>
       <div className="my-2 flex h-1.5 overflow-hidden rounded-full bg-card">
         {seg("porn_bot", "#a855f7")}
         {seg("spam", "#ef4444")}
@@ -1053,23 +1082,23 @@ function Overview() {
       <div className="mt-3 flex flex-wrap gap-x-5 gap-y-1.5 text-[12px] text-fg-3">
         <span className="inline-flex items-center gap-1.5">
           <i className="block h-2 w-2 rounded-full bg-violet" />
-          色情 bot {d.porn_bot ?? 0}
+          {t("ov.pornBot")} {d.porn_bot ?? 0}
         </span>
         <span className="inline-flex items-center gap-1.5">
           <i className="block h-2 w-2 rounded-full bg-danger" />
-          垃圾 {d.spam ?? 0}
+          {t("ov.spam")} {d.spam ?? 0}
         </span>
         <span className="inline-flex items-center gap-1.5">
           <i className="block h-2 w-2 rounded-full bg-warn" />
-          疑似 {d.likely_spam ?? 0}
+          {t("ov.likely")} {d.likely_spam ?? 0}
         </span>
         <span className="inline-flex items-center gap-1.5">
           <i className="block h-2 w-2 rounded-full bg-fg-3" />
-          不确定 {d.uncertain ?? 0}
+          {t("ov.uncertain")} {d.uncertain ?? 0}
         </span>
         <span className="inline-flex items-center gap-1.5">
           <i className="block h-2 w-2 rounded-full bg-ok" />
-          正常 {d.legit ?? 0}
+          {t("ov.legit")} {d.legit ?? 0}
         </span>
       </div>
     </Page>
@@ -1077,6 +1106,7 @@ function Overview() {
 }
 
 function Blocklist() {
+  const { t } = useT();
   const [list, setList] = useState<BlockRecord[]>([]);
   const [q, setQ] = useState("");
   const load = () => getBlocklist().then((l) => setList([...l].sort((a, b) => b.ts - a.ts)));
@@ -1308,11 +1338,12 @@ function Blocklist() {
 }
 
 function Cache() {
+  const { t } = useT();
   const [rows, setRows] = useState<CacheRow[]>([]);
   useEffect(() => void getCacheRows().then(setRows), []);
   return (
     <Page
-      title="检测缓存"
+      title={t("page.cache.title")}
       sub={`共 ${rows.length} 条 · 同一账号再次出现时直接复用判定结果，不再调用 AI`}
     >
       <div className="desktop-record-table overflow-x-auto rounded-lg border border-border">
@@ -2749,6 +2780,7 @@ function DetectionRulesSection({
 }
 
 function Settings() {
+  const { t } = useT();
   const [cleared, setCleared] = useState(false);
   const [clearOpen, setClearOpen] = useState(false);
   const [st, setSt] = useState<Settings | null>(null);
@@ -3050,19 +3082,19 @@ function Settings() {
   );
 }
 
-const About = () => (
-  <Page title="关于" sub={`${BRAND.name} · 公益、开源`}>
+const About = () => {
+  const { t } = useT();
+  return (
+  <Page title={t("page.about.title")} sub={`${BRAND.name} · ${t("page.about.sub")}`}>
     <div className="max-w-[680px] space-y-4 text-[13px] leading-7 text-fg-2">
-      <p>
-        X(Twitter) 反垃圾 / 色情机器人扩展。被动检测：公共名单由扩展定期从官方源自动同步（只下载公开名单数据，不上传任何内容），比对全部在本机完成。如在「设置」里把手动或自动动作选为 X 静音 / 拉黑，则会用你当前的 X 登录态调用 X 自家接口对账号生效（仍不经过我们的服务器、不收集任何数据）。
-      </p>
+      <p>{t("about.body")}</p>
       <div className="about-grid grid grid-cols-1 gap-px overflow-hidden rounded-lg border border-border bg-border sm:grid-cols-2">
         <div className="bg-bg p-4">
-          <div className="text-[11px] uppercase tracking-[0.15em] text-fg-3">许可证</div>
+          <div className="text-[11px] uppercase tracking-[0.15em] text-fg-3">{t("about.license")}</div>
           <code className="mt-1 inline-block font-mono text-[13px] text-fg">{BRAND.license}</code>
         </div>
         <div className="bg-bg p-4">
-          <div className="text-[11px] uppercase tracking-[0.15em] text-fg-3">仓库</div>
+          <div className="text-[11px] uppercase tracking-[0.15em] text-fg-3">{t("about.repo")}</div>
           <a
             href={REPO}
             target="_blank"
@@ -3073,34 +3105,33 @@ const About = () => (
           </a>
         </div>
         <div className="bg-bg p-4">
-          <div className="text-[11px] uppercase tracking-[0.15em] text-fg-3">公榜</div>
+          <div className="text-[11px] uppercase tracking-[0.15em] text-fg-3">{t("about.publicList")}</div>
           <a
             href={`${EDGE_DEFAULT}/list`}
             target="_blank"
             rel="noopener"
             className="mt-1 inline-block text-[13px] text-fg hover:text-accent"
           >
-            最近 100 条已确认 ↗
+            {t("about.recent100")}
           </a>
         </div>
         <div className="bg-bg p-4">
-          <div className="text-[11px] uppercase tracking-[0.15em] text-fg-3">治理</div>
+          <div className="text-[11px] uppercase tracking-[0.15em] text-fg-3">{t("about.governance")}</div>
           <a
             href={BRAND.governance}
             target="_blank"
             rel="noopener"
             className="mt-1 inline-block text-[13px] text-fg hover:text-accent"
           >
-            申诉与移除机制 ↗
+            {t("about.appeal")}
           </a>
         </div>
       </div>
-      <p className="text-[12px] text-fg-3">
-        隐私：除公开的 X 数字 ID 外不存储任何个人信息，数据默认仅在本机。AI 判定永不自动公开，须人工或社区共识（≥3 个独立 GitHub 上报人）确认。
-      </p>
+      <p className="text-[12px] text-fg-3">{t("about.privacy")}</p>
     </div>
   </Page>
-);
+  );
+};
 
 // 小蓝 mascot — same PNG as the toolbar icon + the popup header. We use the
 // runtime URL helper instead of bundling a duplicate asset, and render at
@@ -3346,6 +3377,7 @@ function LocalWhitelistSection({
 /** 白名单 — the user's local list first (highest priority), then the
  *  official-whitelist self-service application. */
 function WhitelistPage() {
+  const { t } = useT();
   const [st, setSt] = useState<Settings | null>(null);
   useEffect(() => {
     getSettings().then(setSt);
@@ -3355,7 +3387,7 @@ function WhitelistPage() {
     setSt((s) => (s ? { ...s, [k]: v } : s));
   };
   return (
-    <Page title="白名单" sub="两份名单，对象不同：上面保护「你自己」不被别人误列；下面保护「你信任的人」不被本机误处理">
+    <Page title={t("page.whitelist.title")} sub={t("page.whitelist.sub")}>
       <div className="max-w-[760px]">
         <section className="mb-10">
           <SectionH>保护我的账号 · 官方白名单</SectionH>
@@ -3398,6 +3430,7 @@ function summaryLines(s: BackupSummary): string[] {
  *  another browser. Never includes the GitHub login or the synced public
  *  lists; import validates every field and merges or replaces per section. */
 function BackupPage() {
+  const { t } = useT();
   const [includeCache, setIncludeCache] = useState(false);
   const [includeStats, setIncludeStats] = useState(true);
   const [exportMsg, setExportMsg] = useState<string | null>(null);
@@ -3480,7 +3513,7 @@ function BackupPage() {
   const present = parsed ? presentBackupSections(parsed.file) : [];
 
   return (
-    <Page title="备份" sub="导出 / 导入你在本机的数据 · 换浏览器、换电脑时迁移">
+    <Page title={t("page.backup.title")} sub={t("page.backup.sub")}>
       <div className="max-w-[760px]">
         <section className="mb-10">
           <SectionH>导出备份</SectionH>
@@ -3639,12 +3672,13 @@ function LanguagePage() {
     };
   }, []);
   const resolved = resolveLocale(pref);
+  const { t } = useT();
   const zhName = (l: UiLocale) =>
-    l === "auto" ? "自动（浏览器语言）" : l === "zh" ? "中文" : l === "en" ? "English" : "日本語";
+    l === "auto" ? t("lang.autoBrowser") : t(`lang.${l}`);
   return (
     <Page
-      title="语言 / Language / 言語"
-      sub="扩展界面语言 · 默认跟随浏览器语言，可手动钉死"
+      title={t("page.language.title")}
+      sub={t("page.language.sub")}
     >
       <div className="flex flex-wrap gap-2">
         {UI_LOCALES.map((l) => (
@@ -3666,27 +3700,24 @@ function LanguagePage() {
         ))}
       </div>
       <p className="mt-4 text-[12.5px] text-fg-2">
-        当前生效：<b className="text-fg">{zhName(pref === "auto" ? "auto" : resolved)}</b>
-        {pref === "auto" && <span className="ml-1 text-fg-3">（按浏览器语言解析为 {resolved}）</span>}
+        {t("lang.current")}：<b className="text-fg">{zhName(pref === "auto" ? "auto" : resolved)}</b>
+        {pref === "auto" && <span className="ml-1 text-fg-3">{t("lang.autoNote", { loc: resolved })}</span>}
       </p>
-      <p className="mt-3 text-[12px] leading-relaxed text-fg-3">
-        覆盖范围：浏览器弹窗（popup）与 x.com 上的 KOL 悬浮卡已支持三语；
-        管理面板其余页面（含本页之外的所有页）仍在逐步迁移中，暂为中文。
-      </p>
+      <p className="mt-3 text-[12px] leading-relaxed text-fg-3">{t("lang.scope")}</p>
     </Page>
   );
 }
 
 const TABS = [
-  ["overview", "概览", Overview],
-  ["blocklist", "处理记录", Blocklist],
-  ["xblocks", "拉黑同步", XBlocksPage],
-  ["cache", "检测缓存", Cache],
-  ["settings", "设置", Settings],
-  ["language", "语言", LanguagePage],
-  ["whitelist", "白名单", WhitelistPage],
-  ["backup", "备份", BackupPage],
-  ["about", "关于", About],
+  ["overview", "nav.overview", Overview],
+  ["blocklist", "nav.blocklist", Blocklist],
+  ["xblocks", "nav.xblocks", XBlocksPage],
+  ["cache", "nav.cache", Cache],
+  ["settings", "nav.settings", Settings],
+  ["language", "nav.language", LanguagePage],
+  ["whitelist", "nav.whitelist", WhitelistPage],
+  ["backup", "nav.backup", BackupPage],
+  ["about", "nav.about", About],
 ] as const;
 type TabId = (typeof TABS)[number][0];
 const tabIds = new Set<TabId>(TABS.map(([id]) => id));
@@ -3700,7 +3731,8 @@ function TabButtons({
   drawer?: boolean;
   onSelect: (id: TabId) => void;
 }) {
-  return TABS.map(([id, label]) => (
+  const { t } = useT();
+  return TABS.map(([id, labelKey]) => (
     <button
       key={id}
       type="button"
@@ -3709,12 +3741,13 @@ function TabButtons({
         drawer ? "w-full" : ""
       } ${active === id ? "bg-card-hi text-fg" : "text-fg-3 hover:bg-card hover:text-fg"}`}
     >
-      {label}
+      {t(labelKey)}
     </button>
   ));
 }
 
 function NavigationFooter() {
+  const { t } = useT();
   return (
     <div className="space-y-2 text-[11px] text-fg-3">
       <a
@@ -3723,7 +3756,7 @@ function NavigationFooter() {
         rel="noopener"
         className="block min-h-11 content-center rounded-md px-3 text-fg-2 hover:bg-card hover:text-fg"
       >
-        看公榜 ↗
+        {t("nav.publicList")} ↗
       </a>
       <a
         href={REPO}
@@ -3731,7 +3764,7 @@ function NavigationFooter() {
         rel="noopener"
         className="block min-h-11 content-center rounded-md px-3 text-fg-2 hover:bg-card hover:text-fg"
       >
-        本项目 GitHub ↗
+        {t("nav.thisRepo")} ↗
       </a>
       <a
         href={BRAND.upstreamRepo}
@@ -3739,7 +3772,7 @@ function NavigationFooter() {
         rel="noopener"
         className="block min-h-11 content-center rounded-md px-3 text-fg-2 hover:bg-card hover:text-fg"
       >
-        原项目 MXGA ↗
+        {t("nav.upstream")} ↗
       </a>
       <div className="px-3 pt-1 font-mono text-fg-4">
         v{chrome.runtime.getManifest().version_name ?? chrome.runtime.getManifest().version}
