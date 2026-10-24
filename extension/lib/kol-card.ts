@@ -307,6 +307,14 @@ export function hideKolCard(force = false): void {
   hide(force);
 }
 
+/** True while the card is actually on screen. The content script's "same row
+ *  already open" hover guard consults this — kolHandle alone goes stale the
+ *  moment the card closes, which used to block every re-hover of the same
+ *  account until a different handle was hovered in between. */
+export function kolCardOpen(): boolean {
+  return !!pop;
+}
+
 export function scheduleHideKolCard(): void {
   scheduleHide();
 }

@@ -18,7 +18,7 @@ import {
   viewerHandle,
 } from "../lib/detect";
 import { CATEGORY_ZH, type SpamCategory } from "../lib/category";
-import { hideKolCard, scheduleHideKolCard, showKolCard } from "../lib/kol-card";
+import { hideKolCard, kolCardOpen, scheduleHideKolCard, showKolCard } from "../lib/kol-card";
 import {
   flushKolSignals,
   kolSignalsFor,
@@ -587,7 +587,15 @@ export default defineContentScript({
           scheduleHideKolCard();
           return;
         }
-        if (kolAnchor && handle.toLowerCase() === kolHandle.toLowerCase()) return; // same row, already pending/open
+        // 同一行已在等待或已开着 → 不重启计时。注意必须检查卡片真的开着
+        // （或计时器还在）：kolHandle 在卡片关闭后不清空，只看它会让同一
+        // 账号的第二次悬停永远失效（卡关了却以为还开着）。
+        if (
+          kolAnchor &&
+          handle.toLowerCase() === kolHandle.toLowerCase() &&
+          (kolTimer !== undefined || kolCardOpen())
+        )
+          return;
         kolCancel();
         scheduleHideKolCard();
         hideKolCard();
