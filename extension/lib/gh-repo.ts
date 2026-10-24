@@ -16,7 +16,7 @@
 //           a two-way sync on the 6h cadence (mirrors the list sync).
 //
 // The repo file is therefore a CONFIGURABLE RULE SOURCE: the user keeps a
-// keyword library in their own fork (e.g. Bycorer/filtrationX), edits it on
+// keyword library in their own fork (e.g. xiaoyi36c/filtrationX), edits it on
 // GitHub, and the extension keeps both sides converging — on top of the
 // official repo's maintainer-curated rules, which remain untouched.
 //

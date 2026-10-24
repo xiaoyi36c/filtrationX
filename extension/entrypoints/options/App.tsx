@@ -2596,7 +2596,7 @@ function DetectionRulesSection({
         <div className="mt-5 rounded-lg border border-border p-3">
           <div className="mb-1.5 text-[12px] font-semibold text-fg">同步到我的 GitHub 仓库</div>
           <p className="mb-3 text-[12px] leading-relaxed text-fg-3">
-            把上面的自定义词库存成你自己仓库里的一个 JSON 文件（比如你的二开仓库 Bycorer/filtrationX），在 GitHub 上直接编辑也能同步回本机——仓库文件就是一套可配置的词库，官方同步下来的关键词照常生效，两套互不影响。
+            把上面的自定义词库存成你自己仓库里的一个 JSON 文件（比如你的二开仓库 xiaoyi36c/filtrationX），在 GitHub 上直接编辑也能同步回本机——仓库文件就是一套可配置的词库，官方同步下来的关键词照常生效，两套互不影响。
           </p>
           <div className="mb-3 rounded-md border border-border-2 px-3 py-2 text-[12px]">
             {ghLoginName ? (
@@ -2613,7 +2613,7 @@ function DetectionRulesSection({
             <input
               value={syncCfg.owner}
               onChange={(e) => void updateSyncCfg({ owner: e.target.value })}
-              placeholder="owner（如 Bycorer）"
+              placeholder="owner（如 xiaoyi36c）"
               className="min-w-[140px] flex-1 rounded-md border border-border-2 bg-transparent px-3 py-1.5 font-mono text-[12.5px] outline-none transition focus:border-accent"
             />
             <input

@@ -11,9 +11,9 @@ export const BRAND = {
   /** Single-line positioning. */
   tagline: "AI 帮你拦 X 上的垃圾",
   /** This fork's GitHub repo URL (no trailing slash). */
-  repo: "https://github.com/Bycorer/filtrationX",
+  repo: "https://github.com/xiaoyi36c/filtrationX",
   /** This fork's releases page. */
-  release: "https://github.com/Bycorer/filtrationX/releases/latest",
+  release: "https://github.com/xiaoyi36c/filtrationX/releases/latest",
   /** The upstream project this fork is based on. */
   upstreamRepo: "https://github.com/foru17/make-x-great-again",
   /** Chrome Web Store listing of the upstream build (kept for reference). */
@@ -37,7 +37,7 @@ export const BRAND = {
   /** Generic issue tracker URL of the upstream repo (rebind fallback etc.). */
   issues: "https://github.com/foru17/make-x-great-again/issues",
   /** Owner display name. */
-  owner: "Bycorer",
+  owner: "xiaoyi36c",
   /** License id. */
   license: "AGPL-3.0",
 } as const;

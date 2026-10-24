@@ -1,6 +1,6 @@
 # filtrationX
 
-基于 [Make X Great Again (MXGA)](https://github.com/foru17/make-x-great-again) v0.6.1 的二次开发分支（当前版本 **v0.2.01**，AGPL-3.0），扩展名 `filtrationX（MXGA 二开版）`。安装包见 [Releases](https://github.com/Bycorer/filtrationX/releases)。
+基于 [Make X Great Again (MXGA)](https://github.com/foru17/make-x-great-again) v0.6.1 的二次开发分支（当前版本 **v0.2.01**，AGPL-3.0），扩展名 `filtrationX（MXGA 二开版）`。安装包见 [Releases](https://github.com/xiaoyi36c/filtrationX/releases)。
 MXGA 是一个 X（Twitter）垃圾号过滤扩展：社区共建公开黑名单 + 本地关键词匹配，帮你把广告号和色情 bot 标出来。上游的完整文档、治理规则与隐私说明见[原仓库](https://github.com/foru17/make-x-great-again)。
 
 本分支保留上游全部能力（官方关键词、公共名单 6 小时同步、本地隐藏 / 静音 / 拉黑、在线 AI 检测等），并新增以下四项功能，与上游功能并行生效、互不影响。
