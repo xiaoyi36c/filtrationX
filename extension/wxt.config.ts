@@ -26,9 +26,12 @@ export default defineConfig({
   manifest: ({ browser }) => ({
     name: "filtrationX（MXGA 二开版）",
     // Chrome manifest `version` must be dot-separated integers; the display
-    // string "0.2.01" rides along as version_name (what chrome://extensions
-    // and the UI show).
-    version_name: "0.2.01",
+    // string rides along as version_name (what chrome://extensions shows).
+    // Pinned explicitly — WXT's package.json fallback produced a stale
+    // 0.2.0 no matter what the extension/package.json said, which made
+    // "which build am I running?" undecidable for the user (2026-10-25).
+    version: "0.2.2",
+    version_name: "0.2.2",
     description:
       "基于 Make X Great Again (MXGA) 的二开分支：词库同步个人仓库 / 白名单改绑 / 限速一键拉黑。Local-first, open source.",
     // alarms: periodic list refresh; unlimitedStorage: the cached list
