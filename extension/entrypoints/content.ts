@@ -566,7 +566,9 @@ export default defineContentScript({
         const t = event.target instanceof Element ? event.target : null;
         if (!t) return;
         const nameWrap = t.closest('[data-testid="User-Name"]');
-        if (!nameWrap) {
+        if (!nameWrap || t.closest(".xss-mount, .xss-pending")) {
+          // 徽标（及其菜单）就挂在 User-Name 里：悬停它属于徽标 popover 的
+          // 地盘——不排 KOL 卡，并把可能开着的卡收起，两个浮层互斥。
           if (kolTimer || kolAnchor) {
             kolCancel();
             scheduleHideKolCard();

@@ -13,7 +13,7 @@
 // 卡片悬停保活、CSS 变量主题（明暗 + X 三主题）。
 
 import { type TrustResult } from "./kol-signals";
-import { detectXTheme } from "./ui";
+import { closeActiveBadgePopover, detectXTheme } from "./ui";
 
 export interface KolCardData {
   handle: string;
@@ -246,6 +246,8 @@ function render(data: KolCardData): string {
 
 /** Show (or move/re-render) the card anchored to `el`. Idempotent per frame. */
 export function showKolCard(el: HTMLElement, data: KolCardData): void {
+  // 与徽标的「手动处理」菜单互斥：卡一出现就收掉它，两个浮层不再叠罗汉。
+  closeActiveBadgePopover();
   const shadowRoot = root();
   if (!pop) {
     pop = document.createElement("div");

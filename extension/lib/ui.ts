@@ -1810,6 +1810,15 @@ function overlay(): ShadowRoot {
   return overlayShadow;
 }
 
+// The one currently-open badge popover (if any), registered by show() and
+// cleared by close(). The KOL hover card (二开) dismisses it when it shows,
+// so the two floating panels can never stack on the same row.
+let activePopoverClose: (() => void) | null = null;
+export function closeActiveBadgePopover(): void {
+  activePopoverClose?.();
+  activePopoverClose = null;
+}
+
 export function createBadge(
   v: Verdict | null,
   a: BadgeActions,
@@ -1875,6 +1884,7 @@ export function createBadge(
     cancelAnimationFrame(raf);
     pop?.remove();
     pop = null;
+    if (activePopoverClose === close) activePopoverClose = null;
     window.removeEventListener("scroll", onScroll, true);
     document.removeEventListener("pointerdown", onOutsidePointerDown, true);
   };
@@ -2028,7 +2038,11 @@ export function createBadge(
     pop.addEventListener("mouseleave", scheduleHide);
     // Mount in the top-level overlay (viewport-true fixed positioning),
     // then measure and place: clamp to the viewport's right edge, flip
-    // above the badge when there is no room below.
+    // above the badge when there is no room below. Only one popover at a
+    // time — opening this one tears down any other (or the KOL card's
+    // exclusive partner, see closeActiveBadgePopover).
+    activePopoverClose?.();
+    activePopoverClose = close;
     overlay().appendChild(pop);
     const place = (r: DOMRect) => {
       if (!pop) return;
