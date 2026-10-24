@@ -79,7 +79,6 @@ import {
   createAnalyzingBadge,
   createBadge,
   createBubble,
-  createCheckedMarker,
   detectXTheme,
 } from "../lib/ui";
 
@@ -1070,6 +1069,7 @@ export default defineContentScript({
       v: Verdict | null,
       note?: string,
       source: BadgeSource = "fresh",
+      clean = false,
     ) {
       // Anchors are kept ONLY for hit accounts (executeHide's fallback and
       // onReviewEach are the sole consumers, and both operate on findings).
@@ -1090,6 +1090,7 @@ export default defineContentScript({
               openAppeal({ handle: sig.handle, ...(sig.userId ? { userId: sig.userId } : {}) }),
             onReport: (category) => reportSpam(sig, category),
             whitelisted,
+            clean: clean && !whitelisted,
             // 本地白名单 toggle. Adding also undoes any local hide already
             // recorded for the account (every id form) and cancels a pending
             // undo-window action, so the row visibly comes back at once.
@@ -1126,14 +1127,15 @@ export default defineContentScript({
       );
     }
 
-    function markChecked(anchor: HTMLElement): void {
-      clearMounts(anchor);
-      mountBadge(anchor, createCheckedMarker);
+    /** 二开：AI/缓存判定干净的账号不再用隐形哨兵——挂低调绿勾「已检」，
+     *  可悬停手动处理。mount 的防重复提交作用不变。 */
+    function markChecked(anchor: HTMLElement, key: string, sig: Signals, source: BadgeSource = "cache"): void {
+      badgeFor(anchor, key, sig, null, undefined, source, true);
     }
 
     async function renderCached(anchor: HTMLElement, key: string, sig: Signals, c: Cached) {
       if (onlineVerdictVisibility(c.verdict) === "silent") {
-        markChecked(anchor);
+        markChecked(anchor, key, sig, "cache");
         return;
       }
       // A day-old cached SPAM verdict is re-checked against the edge before
@@ -1160,7 +1162,7 @@ export default defineContentScript({
         }
         if (result.status === "classified") {
           if (onlineVerdictVisibility(result.verdict) === "silent") {
-            markChecked(anchor);
+            markChecked(anchor, key, sig, "cache");
             return;
           }
           badgeFor(anchor, key, sig, result.verdict, undefined, "cache");
@@ -1198,7 +1200,7 @@ export default defineContentScript({
         void bumpStat("scanned");
       }
       if (onlineVerdictVisibility(result.verdict) === "silent") {
-        markChecked(anchor);
+        markChecked(anchor, key, sig, "fresh");
         return;
       }
       badgeFor(

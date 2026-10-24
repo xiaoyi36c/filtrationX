@@ -404,6 +404,14 @@ svg { display: block; }
   background: color-mix(in srgb, var(--safe) 8%, transparent);
 }
 .xss-badge.ghost.wl:hover { color: var(--safe); filter: brightness(1.1); }
+/* AI-checked clean (二开): quieter than the whitelist ghost — a translucent
+ * green outline that reads as "已看过，没事" and never as an alarm. */
+.xss-badge.ghost.ok {
+  color: color-mix(in srgb, var(--safe) 78%, var(--muted));
+  border-color: color-mix(in srgb, var(--safe) 30%, var(--border));
+  background: color-mix(in srgb, var(--safe) 5%, transparent);
+}
+.xss-badge.ghost.ok:hover { color: var(--safe); filter: brightness(1.08); }
 .acts button[data-wl] {
   color: var(--safe);
   border-color: color-mix(in srgb, var(--safe) 45%, var(--border));
@@ -1759,6 +1767,10 @@ export interface BadgeActions {
   /** Account is on the user's LOCAL whitelist → the badge renders as the
    *  neutral 白名单 marker and the popover offers 移出 instead of actions. */
   whitelisted?: boolean;
+  /** Account was classified CLEAN (AI/cache, silent by default) → render a
+   *  quiet green ✓已检 ghost instead of the invisible sentinel, so the user
+   *  can still hover it for the KOL card and manually handle it (二开). */
+  clean?: boolean;
   /** Toggle local-whitelist membership for this account (add when not
    *  whitelisted, remove when it is). Local-only; the caller re-renders. */
   onWhitelist?: () => void | Promise<void>;
@@ -1817,6 +1829,12 @@ export function createBadge(
     el.className = "xss-badge ghost wl";
     el.setAttribute("aria-label", "MXGA：本地白名单 · 不检测、不处理");
     el.innerHTML = `${icon("shield", "currentColor", 13)}<span>白名单</span>`;
+  } else if (!v && a.clean) {
+    // 二开：AI/缓存判定干净的账号不再完全隐形——低调绿勾幽灵标，仍可
+    // 悬停打开手动处理菜单（人工复检后可拉黑），@handle 悬浮卡照常可看。
+    el.className = "xss-badge ghost ok";
+    el.setAttribute("aria-label", "MXGA：AI 已检 · 干净（悬停可手动处理）");
+    el.innerHTML = `${icon("shield-check", "currentColor", 13)}<span>已检</span>`;
   } else if (!v) {
     // Unhit ghost — still INTERACTIVE: hover/focus opens the 手动处理
     // popover (v0.4 behavior the v0.5 rewrite dropped). "Not on the list"
