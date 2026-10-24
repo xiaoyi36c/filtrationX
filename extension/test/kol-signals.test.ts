@@ -134,9 +134,15 @@ test("trust assessment bands: farm / like-farm / dead-engagement / solid", () =>
     originalRatio: 0.95,
   });
   assert.ok(solid.score >= 75, `expected safe, got ${solid.score}`);
-  // unknown everything → neutral middle
+  // M4 transparency: per-dimension parts ride along and neutral = 50
+  assert.equal(solid.parts.age, 85);
+  assert.equal(solid.parts.original, 80);
   const blank = trustAssessment({});
   assert.ok(blank.score >= 45 && blank.score <= 60, `neutral-ish, got ${blank.score}`);
+  assert.equal(blank.parts.age, 50);
+  assert.equal(blank.parts.network, 50);
+  assert.equal(blank.parts.engagement, 50);
+  assert.equal(blank.parts.original, 50);
 });
 
 test("storage roundtrip: warm reloads live entries, drops expired", async () => {

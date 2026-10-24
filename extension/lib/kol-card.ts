@@ -99,21 +99,136 @@ function esc(s: string): string {
     .replace(/"/g, "&quot;");
 }
 
-/** 12,345 → zh-friendly "1.2万" style. The card language follows the rest of
- *  the extension (Chinese), regardless of X's UI language. */
-function fmtCount(n: number | undefined): string | null {
+// ---- i18n (M4)：卡片语言跟随 X 的 UI 语言（<html lang>），默认中文 ----
+
+type KolLocale = "zh" | "en" | "ja";
+
+function detectKolLocale(): KolLocale {
+  const lang = (document.documentElement.lang || "").toLowerCase();
+  if (lang.startsWith("zh")) return "zh";
+  if (lang.startsWith("ja")) return "ja";
+  return "en";
+}
+
+interface KolStrings {
+  age: string;
+  followers: string;
+  following: string;
+  posts: string;
+  likeRatio: string;
+  perPost: string;
+  trust: string;
+  original: string;
+  focus: string;
+  whitelist: string;
+  registered: string;
+  viewProfile: string;
+  tiers: Record<TrustResult["tier"], string>;
+  /** 可信分四个子维度的短标签（分项透明度）。 */
+  parts: { age: string; network: string; engagement: string; original: string };
+  footer: string;
+  sampledN: (n: number) => string;
+  offline: string;
+  coldStart: (a: number, b: number) => string;
+  sampled: (n: number) => string;
+}
+
+const I18N: Record<KolLocale, KolStrings> = {
+  zh: {
+    age: "账号年龄",
+    followers: "粉丝",
+    following: "关注",
+    posts: "推文",
+    likeRatio: "赞粉比",
+    perPost: "均赞/推",
+    trust: "综合可信",
+    original: "原创比",
+    focus: "主题集中度",
+    whitelist: "白名单",
+    registered: "注册",
+    viewProfile: "查看主页 ↗",
+    tiers: { safe: "靠谱", ok: "一般", warn: "存疑", risk: "高风险" },
+    parts: { age: "年龄", network: "关注网", engagement: "互动", original: "原创" },
+    footer: "档案实时",
+    sampledN: (n) => ` + 采样${n}条`,
+    offline: "不联网",
+    coldStart: (a, b) => `采样不足 ${a}/${b} 条 · 浏览中累积`,
+    sampled: (n) => `（采样 ${n} 条）`,
+  },
+  en: {
+    age: "Age",
+    followers: "Followers",
+    following: "Following",
+    posts: "Posts",
+    likeRatio: "Likes/Fol.",
+    perPost: "Likes/Post",
+    trust: "Trust",
+    original: "Original",
+    focus: "Topic focus",
+    whitelist: "Whitelist",
+    registered: "joined",
+    viewProfile: "View profile ↗",
+    tiers: { safe: "solid", ok: "mixed", warn: "shaky", risk: "risky" },
+    parts: { age: "age", network: "graph", engagement: "engage", original: "orig." },
+    footer: "live profile",
+    sampledN: (n) => ` + ${n} sampled`,
+    offline: "offline",
+    coldStart: (a, b) => `only ${a}/${b} sampled · builds as you browse`,
+    sampled: (n) => ` (${n} sampled)`,
+  },
+  ja: {
+    age: "アカウント年齢",
+    followers: "フォロワー",
+    following: "フォロー中",
+    posts: "投稿",
+    likeRatio: "いいね/フォロ",
+    perPost: "いいね/投稿",
+    trust: "総合信頼",
+    original: "オリジナル率",
+    focus: "話題集中度",
+    whitelist: "ホワイトリスト",
+    registered: "登録",
+    viewProfile: "プロフィール ↗",
+    tiers: { safe: "信頼", ok: "普通", warn: "要注意", risk: "リスク" },
+    parts: { age: "年齢", network: "関係", engagement: "反応", original: "オリ" },
+    footer: "プロフ即時",
+    sampledN: (n) => ` + ${n}サンプル`,
+    offline: "通信なし",
+    coldStart: (a, b) => `サンプル不足 ${a}/${b} · 閲覧中に蓄積`,
+    sampled: (n) => `（${n}件サンプル）`,
+  },
+};
+
+/** 12,345 → zh/ja "1.2万" style, en "12.3K" style. Locale follows X's UI. */
+function fmtCount(n: number | undefined, loc: KolLocale): string | null {
   if (typeof n !== "number" || !Number.isFinite(n) || n < 0) return null;
-  if (n >= 1e8) return `${(n / 1e8).toFixed(1).replace(/\.0$/, "")}亿`;
-  if (n >= 1e4) return `${(n / 1e4).toFixed(1).replace(/\.0$/, "")}万`;
+  const trim = (s: string) => s.replace(/\.0$/, "");
+  if (loc === "en") {
+    if (n >= 1e6) return `${trim((n / 1e6).toFixed(1))}M`;
+    if (n >= 1e3) return `${trim((n / 1e3).toFixed(1))}K`;
+    return n.toLocaleString("en-US");
+  }
+  if (n >= 1e8) return `${trim((n / 1e8).toFixed(1))}亿`;
+  if (n >= 1e4) return `${trim((n / 1e4).toFixed(1))}万`;
   return n.toLocaleString("zh-CN");
 }
 
-function fmtAge(days: number | undefined): { main: string; since: string | null } | null {
+function fmtAge(days: number | undefined, loc: KolLocale): { main: string; since: string | null } | null {
   if (typeof days !== "number" || !Number.isFinite(days) || days < 0) return null;
   let main: string;
-  if (days < 60) main = `${days} 天`;
-  else if (days < 365) main = `${Math.round(days / 30)} 个月`;
-  else main = `${(days / 365).toFixed(1).replace(/\.0$/, "")} 年`;
+  if (loc === "en") {
+    if (days < 60) main = `${days}d`;
+    else if (days < 365) main = `${Math.round(days / 30)}mo`;
+    else main = `${(days / 365).toFixed(1).replace(/\.0$/, "")}y`;
+  } else if (loc === "ja") {
+    if (days < 60) main = `${days} 日`;
+    else if (days < 365) main = `${Math.round(days / 30)} ヶ月`;
+    else main = `${(days / 365).toFixed(1).replace(/\.0$/, "")} 年`;
+  } else {
+    if (days < 60) main = `${days} 天`;
+    else if (days < 365) main = `${Math.round(days / 30)} 个月`;
+    else main = `${(days / 365).toFixed(1).replace(/\.0$/, "")} 年`;
+  }
   return { main, since: null };
 }
 
@@ -178,18 +293,20 @@ function scheduleHide(): void {
 }
 
 function render(data: KolCardData): string {
+  const loc = detectKolLocale();
+  const t = I18N[loc];
   const name = data.displayName?.trim();
-  const age = fmtAge(data.accountAgeDays);
+  const age = fmtAge(data.accountAgeDays, loc);
   const since =
     data.accountCreatedAt && !Number.isNaN(Date.parse(data.accountCreatedAt))
       ? (() => {
           const d = new Date(data.accountCreatedAt);
-          return `${d.getFullYear()}.${String(d.getMonth() + 1).padStart(2, "0")} 注册`;
+          return `${d.getFullYear()}.${String(d.getMonth() + 1).padStart(2, "0")} ${t.registered}`;
         })()
       : null;
-  const followers = fmtCount(data.followersCount);
-  const following = fmtCount(data.followingCount);
-  const statuses = fmtCount(data.statusesCount);
+  const followers = fmtCount(data.followersCount, loc);
+  const following = fmtCount(data.followingCount, loc);
+  const statuses = fmtCount(data.statusesCount, loc);
   const favRatio =
     typeof data.favouritesCount === "number" && typeof data.followersCount === "number" && data.followersCount > 0
       ? fmtRatio(data.favouritesCount / data.followersCount)
@@ -201,32 +318,37 @@ function render(data: KolCardData): string {
   const na = `<b class="na">—</b>`;
   const kv = (k: string, v: string | null, s?: string | null) =>
     `<div class="kv"><span class="k">${k}</span>${v ? `<b>${v}</b>` : na}${s ? `<span class="s">${s}</span>` : ""}</div>`;
-  // M2 采样行：数据未到位就不渲染，避免一卡片假"-"。
-  const TIER_ZH: Record<TrustResult["tier"], string> = {
-    safe: "靠谱",
-    ok: "一般",
-    warn: "存疑",
-    risk: "高风险",
-  };
+  // M2 采样行：数据未到位就不渲染（冷启动行除外——说明原因比静默好）。
   const TIER_COLOR: Record<TrustResult["tier"], string> = {
     safe: "var(--safe)",
     ok: "var(--brand)",
     warn: "var(--warn)",
     risk: "var(--danger)",
   };
+  // 分项透明度：四个子维度分都亮出来，用户能看出综合分从哪来、缺什么。
+  const partsLine = data.trust
+    ? [
+        [t.parts.age, data.trust.parts.age],
+        [t.parts.network, data.trust.parts.network],
+        [t.parts.engagement, data.trust.parts.engagement],
+        [t.parts.original, data.trust.parts.original],
+      ]
+        .map(([k, v]) => `${k} ${v}`)
+        .join(" · ")
+    : "";
   const m2rows = [
     data.trust
-      ? `<div class="kol-row"><span class="k">综合可信</span><span style="color:${TIER_COLOR[data.trust.tier]}"><b>${data.trust.score}</b>/100 · ${TIER_ZH[data.trust.tier]}</span></div>`
+      ? `<div class="kol-row"><span class="k">${t.trust}</span><span style="color:${TIER_COLOR[data.trust.tier]}"><b>${data.trust.score}</b>/100 · ${t.tiers[data.trust.tier]}</span></div>${partsLine ? `<div class="kol-row"><span class="k"></span><span class="k" style="font-size:10.5px">${partsLine}</span></div>` : ""}`
       : "",
     typeof data.originalRatio === "number"
-      ? `<div class="kol-row"><span class="k">原创比</span><span>${(data.originalRatio * 100).toFixed(0)}%<span class="k">（采样 ${data.sampledTweets ?? "?"} 条）</span></span></div>`
+      ? `<div class="kol-row"><span class="k">${t.original}</span><span>${(data.originalRatio * 100).toFixed(0)}%<span class="k">${t.sampled(data.sampledTweets ?? 0)}</span></span></div>`
       : "",
     typeof data.topicFocus === "number"
-      ? `<div class="kol-row"><span class="k">主题集中度</span><span>${(data.topicFocus * 100).toFixed(0)}%</span></div>`
+      ? `<div class="kol-row"><span class="k">${t.focus}</span><span>${(data.topicFocus * 100).toFixed(0)}%</span></div>`
       : "",
     // 冷启动：采样还没攒够时说明原因，而不是静默少两行让人以为坏了。
     typeof data.originalRatio !== "number" && typeof data.sampledTweets === "number"
-      ? `<div class="kol-row"><span class="k">原创比 · 主题集中度</span><span class="k">采样不足 ${data.sampledTweets}/${MIN_TWEETS_FOR_RATIO} 条 · 浏览中累积</span></div>`
+      ? `<div class="kol-row"><span class="k">${t.original} · ${t.focus}</span><span class="k">${t.coldStart(data.sampledTweets, MIN_TWEETS_FOR_RATIO)}</span></div>`
       : "",
   ]
     .filter(Boolean)
@@ -234,18 +356,18 @@ function render(data: KolCardData): string {
   return `
   <div class="kol-head">
     <span class="kol-name">${esc(name || `@${data.handle}`)} <span class="h">@${esc(data.handle)}</span>${data.verified ? " ✓" : ""}</span>
-    ${data.whitelisted ? `<span class="kol-flag wl">白名单</span>` : ""}
+    ${data.whitelisted ? `<span class="kol-flag wl">${t.whitelist}</span>` : ""}
   </div>
   <div class="kol-grid">
-    ${kv("账号年龄", age ? age.main : null, age ? since : null)}
-    ${kv("粉丝", followers)}
-    ${kv("关注", following)}
-    ${kv("推文", statuses)}
-    ${kv("赞粉比", favRatio)}
-    ${kv("均赞/推", perTweet)}
+    ${kv(t.age, age ? age.main : null, age ? since : null)}
+    ${kv(t.followers, followers)}
+    ${kv(t.following, following)}
+    ${kv(t.posts, statuses)}
+    ${kv(t.likeRatio, favRatio)}
+    ${kv(t.perPost, perTweet)}
   </div>
   ${m2rows ? `<div class="kol-rows">${m2rows}</div>` : ""}
-  <div class="kol-foot"><span>filtrationX · 档案实时${typeof data.sampledTweets === "number" ? ` + 采样${data.sampledTweets}条` : ""} · 不联网</span><a href="https://x.com/${encodeURIComponent(data.handle)}" target="_blank" rel="noopener">查看主页 ↗</a></div>`;
+  <div class="kol-foot"><span>filtrationX · ${t.footer}${typeof data.sampledTweets === "number" ? t.sampledN(data.sampledTweets) : ""} · ${t.offline}</span><a href="https://x.com/${encodeURIComponent(data.handle)}" target="_blank" rel="noopener">${t.viewProfile}</a></div>`;
 }
 
 /** Show (or move/re-render) the card anchored to `el`. Idempotent per frame. */

@@ -299,6 +299,8 @@ export interface TrustInput {
 export interface TrustResult {
   score: number; // 0-100
   tier: TrustTier;
+  /** 四个子维度分（0-100），卡片分项透明度用（M4）：缺数据的维度 = 50。 */
+  parts: { age: number; network: number; engagement: number; original: number };
 }
 
 function ageScore(d: number | undefined): number {
@@ -346,14 +348,13 @@ function originalScore(r: number | undefined): number {
 }
 
 /** 综合可信分：年龄 30% + 关注网络 25% + 互动形态 25% + 原创比 20%。
- *  缺数据的维度回中性 50，不奖不罚。 */
+ *  缺数据的维度回中性 50，不奖不罚。parts 把各维度分原样带出。 */
 export function trustAssessment(input: TrustInput): TrustResult {
-  const score = Math.round(
-    0.3 * ageScore(input.accountAgeDays) +
-      0.25 * networkScore(input.followersCount, input.followingCount) +
-      0.25 * engagementScore(input.favouritesCount, input.followersCount, input.statusesCount) +
-      0.2 * originalScore(input.originalRatio),
-  );
+  const age = ageScore(input.accountAgeDays);
+  const network = networkScore(input.followersCount, input.followingCount);
+  const engagement = engagementScore(input.favouritesCount, input.followersCount, input.statusesCount);
+  const original = originalScore(input.originalRatio);
+  const score = Math.round(0.3 * age + 0.25 * network + 0.25 * engagement + 0.2 * original);
   const tier: TrustTier = score >= 75 ? "safe" : score >= 55 ? "ok" : score >= 35 ? "warn" : "risk";
-  return { score, tier };
+  return { score, tier, parts: { age, network, engagement, original } };
 }
