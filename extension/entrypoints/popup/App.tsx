@@ -197,7 +197,6 @@ export function App() {
           className="rounded-md"
         />
         <b className="text-[14px] font-semibold tracking-[-.005em]">{BRAND.acronym}</b>
-        <span className="text-[10.5px] font-medium uppercase tracking-[0.08em] text-fg-4">{BRAND.name}</span>
         <LocaleSwitch
           pref={pref}
           onPick={(v) => {
