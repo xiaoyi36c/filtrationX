@@ -190,22 +190,36 @@ function autoCategoryCount(s: Settings): number {
  *  hide/record is applied separately and always — the X call rides on top.
  *  Returns false only when the native X action definitively failed (used by
  *  the bubble's batch panel to surface a per-row 重试 state). */
-async function applyXAction(mode: ActionMode, sig: Signals, shouldProceed: () => boolean = () => true): Promise<boolean> {
-  if (!shouldProceed()) return false;
-  if (mode === "local") return true;
+interface AppliedXResult {
+  ok: boolean;
+  /** HTTP 状态码与失败原因（诊断用，本地日志与处理记录可见）。 */
+  status?: number;
+  cause?: string;
+}
+
+async function applyXAction(mode: ActionMode, sig: Signals, shouldProceed: () => boolean = () => true): Promise<AppliedXResult> {
+  if (!shouldProceed()) return { ok: false };
+  if (mode === "local") return { ok: true };
 
   // Load the mutation client only after the user explicitly chooses a native
   // X action and grants the optional host permission.
   const { performXAction, retryDelayForAttempt } = await import("../lib/x-action");
   const attempt = await performXAction(mode, sig.userId, sig.handle, shouldProceed);
-  if (attempt.ok) return true;
+  if (attempt.ok) return { ok: true, status: attempt.status };
   const delay = retryDelayForAttempt(attempt, 1);
   if (delay > 0) {
     await new Promise((r) => setTimeout(r, delay));
     const second = await performXAction(mode, sig.userId, sig.handle, shouldProceed); // one best-effort retry
-    return second.ok;
+    if (second.ok) return { ok: true, status: second.status };
+    return { ok: false, status: second.status, cause: second.reason };
   }
-  return false;
+  return { ok: false, status: attempt.status, cause: attempt.reason };
+}
+
+/** 失败原因短串：HTTP 状态 + 底层 cause，进控制台日志与处理记录。 */
+function xFailHint(r: AppliedXResult): string {
+  const s = r.status ? `HTTP ${r.status}` : "";
+  return [s, r.cause].filter(Boolean).join(" · ") || "原因未知";
 }
 
 /** Cheap author handle from the User-Name link href — no fiber walk, no
@@ -804,14 +818,14 @@ export default defineContentScript({
       // Mirror the auto path: when the native X action fails, the 处理记录
       // row must say so — the user clicked 拉黑/静音 and only got a local
       // hide, and the record is the one place that can state it honestly.
-      return applyXAction(mode, sig).then((ok) => {
+      return applyXAction(mode, sig).then((r) => {
         if (mode === "mute" || mode === "block") void clearPendingAction(key);
-        if (!ok) {
+        if (!r.ok) {
           void updateBlockRecord(key, {
-            reason: `手动${actionVerb(mode)}（X 动作失败，仅本地隐藏）`,
+            reason: `手动${actionVerb(mode)}（X 动作失败 ${xFailHint(r)}，仅本地隐藏）`,
           });
         }
-        return ok;
+        return r.ok;
       });
     }
 
@@ -986,13 +1000,17 @@ export default defineContentScript({
           const acting = autoTarget(it);
           if (acting) mountActing(acting, it.verb, false);
           bubbleApi?.markAuto(it.key, "processing", it.verb);
-          const xOk =
+          const xRes =
             it.action === "mute" || it.action === "block"
               ? await applyXAction(it.action, it.sig, allowed)
-              : true;
+              : ({ ok: true } as AppliedXResult);
           if (!allowed()) { await cancel(); continue; }
-          if (!xOk)
-            console.warn(`[MXGA] 自动${it.verb}：X 原生动作失败`, it.sig.handle, it.sig.userId);
+          if (!xRes.ok)
+            console.warn(
+              `[MXGA] 自动${it.verb}：X 原生动作失败 ${xFailHint(xRes)}`,
+              it.sig.handle,
+              it.sig.userId,
+            );
           // Even the instant local-hide mode dwells long enough to be SEEN.
           const dwell = AUTO_MIN_ACT_MS - (Date.now() - t0);
           if (dwell > 0) await sleep(dwell);
@@ -1007,13 +1025,13 @@ export default defineContentScript({
           // before this point stay pending. On X failure, annotate the record.
           if (it.action === "mute" || it.action === "block") {
             void clearPendingAction(it.key);
-            if (!xOk) {
+            if (!xRes.ok) {
               void updateBlockRecord(it.key, {
-                reason: `${it.categoryZh} · 自动${it.verb}（X 动作失败，仅本地隐藏）`,
+                reason: `${it.categoryZh} · 自动${it.verb}（X 动作失败 ${xFailHint(xRes)}，仅本地隐藏）`,
               });
             }
           }
-          bubbleApi?.markAuto(it.key, xOk ? "done" : "failed", it.verb);
+          bubbleApi?.markAuto(it.key, xRes.ok ? "done" : "failed", it.verb);
         } catch (e) {
           console.warn(`[MXGA] 自动${it.verb}处理异常`, it.sig.handle, e);
           try {
@@ -1052,10 +1070,10 @@ export default defineContentScript({
         } as Signals;
         const allowed = () => settings.enabled && settings.actionMode !== "local" && !protectedAccount(sig);
         if (!allowed()) { await clearPendingAction(p.id); continue; }
-        const ok = await applyXAction(p.action, sig, allowed).catch(() => false);
-        if (!ok) {
+        const res = await applyXAction(p.action, sig, allowed).catch(() => ({ ok: false } as AppliedXResult));
+        if (!res.ok) {
           void updateBlockRecord(p.id, {
-            reason: `自动${p.action === "block" ? "拉黑" : "静音"}（X 动作失败，仅本地隐藏）`,
+            reason: `自动${p.action === "block" ? "拉黑" : "静音"}（X 动作失败 ${xFailHint(res)}，仅本地隐藏）`,
           });
         }
         void clearPendingAction(p.id);
