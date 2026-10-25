@@ -39,9 +39,10 @@ const ENDPOINT: Record<XActionKind, string> = {
 };
 
 // Pacing — shared across both action kinds (both are write actions against
-// the same account-mutation rate budget).
-const ACTION_DELAY_MS = 1200;
-const ACTION_JITTER_MS = 700;
+// the same account-mutation rate budget). 2026-10-25 提速：1200+700 → 800+400
+// （应用户要求；阶梯冷却与 429 退避不变，仍是主要的安全阀）。
+const ACTION_DELAY_MS = 800;
+const ACTION_JITTER_MS = 400;
 const SHORT_COOLDOWN_EVERY = 45;
 const SHORT_COOLDOWN_MS = 8_000;
 const LONG_COOLDOWN_EVERY = 120;

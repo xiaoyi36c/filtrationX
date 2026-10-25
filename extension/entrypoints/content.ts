@@ -462,6 +462,24 @@ export default defineContentScript({
                 reason: "黑名单一键拉黑",
                 ts: Date.now(),
               });
+            } else if (r.status === 404) {
+              // 账号已被 X 封禁/注销：目标状态已达成，视为已处理而非失败
+              // ——否则名单前排的一串死号会把熔断器瞬间打跳（2026-10-25 实测）。
+              // 同时落 gone 缓存，下次一键拉黑直接跳过、不再发请求。
+              void import("../lib/block-queue").then(({ markGoneAccounts }) =>
+                markGoneAccounts([item.u, item.h].filter(Boolean)),
+              );
+              const key = item.u || `h:${item.h}`;
+              void addBlocked(key);
+              void addBlockRecord({
+                id: key,
+                handle: item.h,
+                source: "block_all",
+                reason: "黑名单一键拉黑（账号已不存在，X 返回 404，无需拉黑）",
+                ts: Date.now(),
+              });
+              sendResponse({ ok: true, gone: true });
+              return;
             }
             sendResponse(r);
           } catch {

@@ -88,6 +88,7 @@ async function pumpBlockQueue(): Promise<void> {
       const {
         getBlockQueue,
         saveBlockQueue,
+        getGoneMap,
         BLOCK_QUEUE_WORKER_KEY,
         MAX_FAIL_STREAK,
         PUMP_INTERVAL_MS,
@@ -95,6 +96,20 @@ async function pumpBlockQueue(): Promise<void> {
       } = await import("../lib/block-queue");
       const q = await getBlockQueue();
       if (!q.running || q.paused) return;
+      if (q.cursor >= q.items.length) {
+        q.running = false;
+        q.needTab = false;
+        await saveBlockQueue(q);
+        return;
+      }
+      // gone 缓存里的死号（已封禁/注销）瞬时跳过：不发请求、不占节流间隔。
+      const gone = await getGoneMap();
+      while (q.cursor < q.items.length) {
+        const it = q.items[q.cursor]!;
+        if (!gone[it.u] && !gone[it.h]) break;
+        q.cursor++;
+        q.done++;
+      }
       if (q.cursor >= q.items.length) {
         q.running = false;
         q.needTab = false;
