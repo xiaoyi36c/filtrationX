@@ -40,14 +40,14 @@ filtrationX 帮你在刷 X 时自动标出广告号、色情 bot 等垃圾账号
 
 | # | 功能 | 简介 |
 |---|------|------|
-| **F1** | 自定义词库 GitHub 同步 | 本机 ↔ 你的仓库双向同步，登录后自动识别账号与可写仓库，写权限鉴权 |
-| **F2** | 白名单改绑 | 账号改名后迁移已批准名额（Issue 通道 + 可选自部署全自动） |
-| **F3** | 黑名单一键拉黑 | 限速队列 + 单次限量 + 失败熔断，进度持久化、可暂停续跑 |
-| **F4** | X 原生拉黑列表 | 只读同步已拉黑账号，行内一键解除误拉黑 |
-| **F5** | 本地规则动作开关 | 默认仅隐藏；开启后按类别策略执行静音 / 拉黑 |
-| **F6** | KOL 悬浮卡 | 悬停 @handle 显示年龄、原创比、主题集中度、综合可信分（本地采样；可选 GraphQL 精确互动） |
+| **F1** | 自定义词库 GitHub 同步 | 本机 ↔ 你的仓库双向同步，写权限鉴权 |
+| **F2** | 白名单改绑 | 账号改名后迁移已批准名额（Issue 通道 + 可选自部署自动） |
+| **F3** | 黑名单一键拉黑 | 多层限速 + 单次限量 + 失败熔断，防风控 |
+| **F4** | X 原生拉黑列表 | 同步已拉黑账号，支持一键解除 |
+| **F5** | 本地规则动作开关 | 默认仅隐藏；可开启后按策略执行静音/拉黑 |
+| **F6** | KOL 悬浮卡 | 悬停 @handle 显示年龄、原创比、主题集中度、可信分（本地采样，可选 GraphQL 精确增强） |
 
-另外：全局界面多语言（默认跟随浏览器语言，可切换中文 / English / 日本語）、AI 判定干净的账号显示低调的绿色「已检」徽标、绿鸟图标（滤鸟）。
+另外已支持：全局 UI 多语言（跟随浏览器 / 可切换）、KOL 卡 zh/en/ja、AI 干净账号绿色幽灵徽标等。
 
 ---
 
@@ -57,7 +57,7 @@ filtrationX 帮你在刷 X 时自动标出广告号、色情 bot 等垃圾账号
 ### 普通用户（推荐）
 
 1. 打开 [Releases](https://github.com/xiaoyi36c/filtrationX/releases)
-2. 下载最新 `filtrationX-v0.2.2-chrome-mv3.zip` 并解压
+2. 下载最新 `filtrationX-*-chrome-mv3.zip` 并解压
 3. 浏览器打开 `chrome://extensions` → 开启「开发者模式」
 4. 「加载已解压的扩展程序」→ 选择解压目录
 5. 访问 [x.com](https://x.com)，扩展自动生效
@@ -69,7 +69,7 @@ filtrationX 帮你在刷 X 时自动标出广告号、色情 bot 等垃圾账号
 ```bash
 git clone https://github.com/xiaoyi36c/filtrationX.git
 cd filtrationX/extension
-npm install
+npm install          # 或 pnpm install
 npm run build        # 产物在 .output/chrome-mv3
 ```
 
