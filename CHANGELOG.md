@@ -10,6 +10,51 @@ otherwise.
 
 _Nothing yet._
 
+## [0.2.2] - 2026-10-25 (filtrationX fork)
+
+The fork's own release line: 0.2.x tracks the filtrationX extension version,
+built on upstream 0.6.1. Everything below is fork-only; upstream behavior is
+unchanged and runs in parallel.
+
+### Added
+
+- **KOL hover card** (upstream goal 02), shipped in four steps:
+  - M1: hovering any @handle shows account age, follower scale, like/follower
+    and per-post engagement from the page's own fiber bridge — zero network.
+  - M2: local accumulated sampling adds original-post ratio, topic focus
+    (CJK bigram document frequency, counts only — no text stored) and a
+    0–100 trust score with a four-tier color band and per-dimension breakdown.
+  - M3 (opt-in, default off): GraphQL UserTweets on hover for precise
+    per-tweet engagement medians vs followers; serialized read limiter
+    (≥400ms, 429 cooldown 10min), 3-day cache, session-disabled on stale
+    query IDs.
+  - M4: data-source labeling, cold-start hints, sampling manager in options,
+    trilingual card.
+- **Global i18n** (zh / en / ja, default = browser language): popup fully
+  translated with a quick locale switcher, dashboard nav + page headers +
+  overview/block-sync/about/language pages, KOL card. Central dictionary
+  (`lib/ui-strings.ts`, `lib/i18n.ts`).
+- Rules-sync auto-discovery: after GitHub login the owner is filled from the
+  login and the repo becomes a dropdown of writable repos.
+- Green bird icon (绿鸟=滤鸟), recolored and resized for 16/32/48/128.
+- Whitelist rebind to a new X id (F2) with optional self-hosted edge endpoint.
+
+### Changed
+
+- "X 拉黑" tab renamed to "拉黑同步" (page title: native block list).
+- A checked-clean account now shows a quiet green ✓已检 ghost instead of an
+  invisible sentinel, so it stays manually actionable.
+
+### Fixed
+
+- Re-hovering the same handle never re-opened the KOL card after it closed.
+- KOL card and badge popover could stack; they are now mutually exclusive.
+- Auto-block failures now surface HTTP status and cause in console and
+  records instead of a bare warn.
+- Daily cap (400/day) removed from the block queue per user request.
+- Garbled Chinese in release notes and a WXT version fallback that shipped a
+  stale manifest version.
+
 ## [0.6.1] - 2026-09-06
 
 The false-positive release. The 2026-09-04 audit (eight upheld appeals,
