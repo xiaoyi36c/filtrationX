@@ -19,3 +19,6 @@ __pycache__/
 apple/**/xcuserdata/
 apple/Config/Signing.local.xcconfig
 *.xcuserstate
+
+# 私钥不入库（manifest key 公钥已内嵌，.pem 仅本机保留）
+keys/
