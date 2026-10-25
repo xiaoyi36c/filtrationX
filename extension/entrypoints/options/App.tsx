@@ -82,6 +82,7 @@ import {
   removeBlock,
   tweetUrl,
 } from "../../lib/store";
+import { clearDetectionCache } from "../../lib/cache";
 import type { Label } from "../../lib/types";
 
 const REPO = BRAND.repo;
@@ -1340,12 +1341,52 @@ function Blocklist() {
 function Cache() {
   const { t } = useT();
   const [rows, setRows] = useState<CacheRow[]>([]);
-  useEffect(() => void getCacheRows().then(setRows), []);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const reload = () => void getCacheRows().then(setRows);
+  useEffect(() => void reload(), []);
+  const clearAll = async () => {
+    setBusy(true);
+    try {
+      const n = await clearDetectionCache();
+      setMsg(n > 0 ? `已清空 ${n} 条缓存，下次检测将重新调用 AI` : "缓存本来就是空的");
+      reload();
+    } finally {
+      setBusy(false);
+      setConfirmOpen(false);
+    }
+  };
   return (
     <Page
       title={t("page.cache.title")}
       sub={`共 ${rows.length} 条 · 同一账号再次出现时直接复用判定结果，不再调用 AI`}
     >
+      <div className="mb-4 flex flex-wrap items-center gap-2">
+        <Btn onClick={() => reload()} disabled={busy}>
+          刷新
+        </Btn>
+        <Btn tier="danger" onClick={() => setConfirmOpen(true)} disabled={busy || !rows.length}>
+          重置缓存
+        </Btn>
+        {msg && <span className="text-[12px] text-fg-3">{msg}</span>}
+      </div>
+      <ConfirmDialog
+        open={confirmOpen}
+        title="重置检测缓存"
+        variant="danger"
+        body={
+          <>
+            清空全部 {rows.length} 条判定缓存。效果：
+            <ul className="my-2 list-inside list-disc text-fg-3">
+              <li>这些账号再次出现时将重新调用 AI 检测（消耗在线检测额度）</li>
+              <li>不影响处理记录、白名单与词库</li>
+            </ul>
+          </>
+        }
+        onConfirm={() => void clearAll()}
+        onCancel={() => setConfirmOpen(false)}
+      />
       <div className="desktop-record-table overflow-x-auto rounded-lg border border-border">
         <table className="w-full min-w-[760px] border-collapse text-[13px]">
           <thead className="bg-card">

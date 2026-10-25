@@ -99,3 +99,16 @@ export async function cacheSet(id: string, c: Cached): Promise<void> {
     /* non-fatal */
   }
 }
+
+/** 清空全部检测缓存（设置页「重置缓存」入口）：枚举本前缀的键并移除，
+ *  返回清除条数。storage 不可用时返回 0。 */
+export async function clearDetectionCache(): Promise<number> {
+  try {
+    const all = (await chrome.storage.local.get(null)) as Record<string, unknown>;
+    const keys = Object.keys(all).filter((k) => k.startsWith(PREFIX));
+    if (keys.length) await chrome.storage.local.remove(keys);
+    return keys.length;
+  } catch {
+    return 0;
+  }
+}
