@@ -5,11 +5,11 @@
 // process still live there.
 export const BRAND = {
   /** Full product name shown in title bars / hero / about. */
-  name: "Make X Great Again 二开版",
+  name: "X SPAM FILTER",
   /** Short acronym for compact surfaces (popup header, content-script badges). */
   acronym: "filtrationX",
   /** Single-line positioning. */
-  tagline: "AI 帮你拦 X 上的垃圾",
+  tagline: "本地优先，帮你拦 X 上的垃圾",
   /** This fork's GitHub repo URL (no trailing slash). */
   repo: "https://github.com/xiaoyi36c/filtrationX",
   /** This fork's releases page. */

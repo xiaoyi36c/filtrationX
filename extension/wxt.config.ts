@@ -24,7 +24,7 @@ export default defineConfig({
   // new AMO listings need the taxonomy in the manifest.
   suppressWarnings: { firefoxDataCollection: true },
   manifest: ({ browser }) => ({
-    name: "filtrationX（MXGA 二开版）",
+    name: "filtrationX",
     // Chrome manifest `version` must be dot-separated integers; the display
     // string rides along as version_name (what chrome://extensions shows).
     // Pinned explicitly — WXT's package.json fallback produced a stale
@@ -33,7 +33,7 @@ export default defineConfig({
     version: "0.2.2",
     version_name: "0.2.2",
     description:
-      "基于 Make X Great Again (MXGA) 的二开分支：词库同步个人仓库 / 白名单改绑 / 限速一键拉黑。Local-first, open source.",
+      "本地优先的 X 垃圾号过滤：公开黑名单 / 自定义词库同步个人仓库 / 限速一键拉黑 / KOL 可信信号。Local-first, open source.",
     // alarms: periodic list refresh; unlimitedStorage: the cached list
     // (~5MB) plus local records would otherwise crowd the 10MB default
     // quota. Neither adds an install-time permission warning.

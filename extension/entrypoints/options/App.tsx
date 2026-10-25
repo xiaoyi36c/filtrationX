@@ -2600,7 +2600,7 @@ function DetectionRulesSection({
       <Toggle
         on={st.kolCardEnabled}
         onChange={(v) => save("kolCardEnabled", v)}
-        label="KOL 悬浮卡（目标 02）"
+        label="KOL 悬浮卡"
         hint="悬停在 @handle 上显示账号年龄、粉丝规模、互动效率与本地采样结论（原创比 / 主题集中度 / 综合可信分）——全部读自页面自身数据与本地累积采样，零联网查询"
       />
       <div className="pl-1 text-[12px] text-fg-3">
@@ -2726,7 +2726,7 @@ function DetectionRulesSection({
         <div className="mt-5 rounded-lg border border-border p-3">
           <div className="mb-1.5 text-[12px] font-semibold text-fg">同步到我的 GitHub 仓库</div>
           <p className="mb-3 text-[12px] leading-relaxed text-fg-3">
-            把上面的自定义词库存成你自己仓库里的一个 JSON 文件（比如你的二开仓库 xiaoyi36c/filtrationX），在 GitHub 上直接编辑也能同步回本机——仓库文件就是一套可配置的词库，官方同步下来的关键词照常生效，两套互不影响。
+            把上面的自定义词库存成你自己仓库里的一个 JSON 文件（比如 xiaoyi36c/filtrationX），在 GitHub 上直接编辑也能同步回本机——仓库文件就是一套可配置的词库，官方同步下来的关键词照常生效，两套互不影响。
           </p>
           <div className="mb-3 rounded-md border border-border-2 px-3 py-2 text-[12px]">
             {ghLoginName ? (
@@ -3126,7 +3126,7 @@ function Settings() {
 const About = () => {
   const { t } = useT();
   return (
-  <Page title={t("page.about.title")} sub={`${BRAND.name} · ${t("page.about.sub")}`}>
+  <Page title={t("page.about.title")} sub={t("page.about.sub")}>
     <div className="max-w-[680px] space-y-4 text-[13px] leading-7 text-fg-2">
       <p>{t("about.body")}</p>
       <div className="about-grid grid grid-cols-1 gap-px overflow-hidden rounded-lg border border-border bg-border sm:grid-cols-2">
@@ -3142,7 +3142,7 @@ const About = () => {
             rel="noopener"
             className="mt-1 inline-block text-[13px] text-fg hover:text-accent"
           >
-            github.com/{BRAND.owner}/make-x-great-again ↗
+            github.com/{BRAND.owner}/filtrationX ↗
           </a>
         </div>
         <div className="bg-bg p-4">
@@ -3193,12 +3193,7 @@ function BrandLockup() {
   return (
     <div className="flex min-w-0 items-center gap-2.5 text-[15px] font-semibold tracking-[-0.005em]">
       <Mascot />
-      <span className="flex min-w-0 flex-col gap-px leading-tight">
-        <span>{BRAND.acronym}</span>
-        <span className="truncate text-[10px] font-medium uppercase tracking-[0.08em] text-fg-4">
-          {BRAND.name}
-        </span>
-      </span>
+      <span className="truncate">{BRAND.acronym}</span>
     </div>
   );
 }
