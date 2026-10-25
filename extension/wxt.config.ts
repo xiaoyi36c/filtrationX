@@ -25,11 +25,6 @@ export default defineConfig({
   suppressWarnings: { firefoxDataCollection: true },
   manifest: ({ browser }) => ({
     name: "filtrationX",
-    // 固定扩展 ID（2026-10-25 应用户要求）：Chrome 由该公钥派生 ID，无论
-    // 换目录重装多少次都是 chrome-extension://hhbcjglaehpganao/。
-    // 对应私钥 keys/filtrationx.pem 在仓库外本机保管（.gitignore 已排除），
-    // 仅打包 .crx 时需要；丢失则 ID 无法保持，须重新生成。
-    key: "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA75wdYvL1ArPrLjexOmQhCR/aHdj2On0G1kjngQsJSsGdeJYj2zP+cEcfBkP6jA+b2G5fmjO63Kso06zWrU/PA1jh3b3/IwfoXMZvhF2Zn/RoNR4F0/kMAC9Ng1XtfHHYwzkMPdFqHtY9Aa1yyL7OOpkoxKBudSFOheq6FUl8F1HzMnKNSjBz/GBKAet1v5Lf4bT2kJRW87uA0Dnfjl279mbH4FT/fikc/+gcg9bnNLbZV57Ko7jZxXj29WjTI4sr/sLLa9x86rpDqFunHCOPA2NQn/TvSfQX7AQm3ivluEcDDUe0zHu5m0Hvt2kiM51z9Pue1u7Gcm6OMDfkmRUKOQIDAQAB",
     // Chrome manifest `version` must be dot-separated integers; the display
     // string rides along as version_name (what chrome://extensions shows).
     // Pinned explicitly — WXT's package.json fallback produced a stale
