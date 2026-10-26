@@ -175,7 +175,7 @@ test("parse rejects junk, strips unknown/off-enum values, keeps the rest", () =>
   );
   assert.ok(r.ok);
   if (!r.ok) return;
-  assert.deepEqual(r.file.data.settings, { autoScope: "all", categoryActions: { porn: "block", crypto: "badge", gambling: "badge", resource: "badge", marketing: "badge", other: "badge" } });
+  assert.deepEqual(r.file.data.settings, { autoScope: "all", categoryActions: { porn: "block", crypto: "badge", gambling: "badge", resource: "badge", marketing: "badge", aifarm: "badge", other: "badge" } });
   assert.equal(r.summary.localWhitelist, 1);
   assert.equal(r.summary.customRules, 1);
   assert.equal(r.summary.disabledRules, 1);

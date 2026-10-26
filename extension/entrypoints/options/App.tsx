@@ -394,6 +394,7 @@ const CAT_COLOR: Record<string, string> = {
   gambling: "#ec4899",
   resource: "#3b82f6",
   marketing: "#ef4444",
+  aifarm: "#14b8a6",
   other: "#71717a",
 };
 
@@ -1057,6 +1058,7 @@ function Overview() {
     ["r", "resource"],
     ["c", "crypto"],
     ["g", "gambling"],
+    ["a", "aifarm"],
     ["o", "other"],
   ];
   return (
@@ -1663,6 +1665,7 @@ const CATEGORY_HINT: Record<SpamCategory, string> = {
   gambling: "博彩、体育投注、棋牌推广",
   resource: "网盘资源自取、盗版资源引流",
   marketing: "广告矩阵、涨粉、通用营销引流",
+  aifarm: "蓝标 AI/币圈养号：AI 头像与话术、「浇朋友/走个面儿」、😂🤣刷评、简介混币圈 AI web3 炒股",
   other: "已确认是垃圾号但未归入以上类别",
 };
 
@@ -1685,6 +1688,7 @@ const CAT_CODE: Record<SpamCategory, string> = {
   gambling: "g",
   resource: "r",
   marketing: "m",
+  aifarm: "a",
   other: "o",
 };
 
