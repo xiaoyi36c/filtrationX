@@ -219,6 +219,7 @@ async function pumpFollowQueue(): Promise<void> {
         retryable?: boolean;
         skipped?: boolean;
         status?: number;
+        retryAfterMs?: number;
         invalid?: boolean;
         followLimit?: boolean;
         reason?: string;
@@ -279,7 +280,10 @@ async function pumpFollowQueue(): Promise<void> {
           await saveFollowQueue(q);
           return;
         } else {
-          q.lastError = res.reason ?? (res.status ? `X 返回 ${res.status}（可能已关注）` : "关注未执行");
+          q.lastError =
+            res.status === 429
+              ? "限流（429）——X 要求放慢速度"
+              : (res.reason ?? (res.status ? `X 返回 ${res.status}（可能已关注）` : "关注未执行"));
           // 限流熔断只看 retryable（429/5xx 等）。
           if (res.retryable) failStreak++;
           // 但「已关注」/登录态失效这类一次性失败也不该无限跑：ct0 过期时
@@ -303,10 +307,48 @@ async function pumpFollowQueue(): Promise<void> {
         return;
       }
       await saveFollowQueue(q);
+      // 429/5xx 后 x-action 已记了退避（429 默认 45s）：与其让下一个 exec 在
+      // content script 里静默等冷却（UI 像冻住，MV3 SW 还可能被空闲回收），
+      // 不如在泵里分块等完——每 5s 写一次 lastError 倒计时（UI 2s 轮询可见）
+      // 并碰一次 storage 重置 SW 空闲计时器。用户点「停止」随时退出。
+      const backoffMs = !res.ok && !res.skipped && res.retryable
+        ? Math.max(res.retryAfterMs ?? 0, res.status === 429 ? 45_000 : 8_000)
+        : 0;
+      if (backoffMs > 0) {
+        let left = Math.min(backoffMs, 600_000); // retry-after 离谱值兜底
+        while (left > 0) {
+          const cur = await getFollowQueue();
+          if (!cur.running) break;
+          cur.lastError = `限流冷却中，约 ${Math.ceil(left / 1000)}s 后自动继续…`;
+          await saveFollowQueue(cur);
+          try {
+            await chrome.storage.local.get("xss:follow-queue:v1");
+          } catch {
+            /* 非致命 */
+          }
+          const slept = Math.min(5_000, left);
+          await blockQueueSleep(slept);
+          left -= slept;
+        }
+        if (left > 0) return; // 用户已停止
+      }
       await blockQueueSleep(FOLLOW_PUMP_INTERVAL_MS + Math.floor(Math.random() * FOLLOW_PUMP_JITTER_MS));
     }
   } finally {
     followQueuePumping = false;
+  }
+}
+
+/** Follow 队列 watchdog：MV3 可能在冷却等待期回收 SW，泵死了队列却还标着
+ *  running——挂到 block 队列同款 1 分钟 alarm 上，状态是 running 就重新
+ *  进入泵（断点在 q.cursor，续跑无损）。 */
+async function followQueueWatchdog(): Promise<void> {
+  try {
+    const { getFollowQueue } = await import("../lib/flj-sync");
+    const q = await getFollowQueue();
+    if (q.running) void pumpFollowQueue();
+  } catch {
+    /* 非致命 */
   }
 }
 
@@ -462,6 +504,7 @@ export default defineBackground(() => {
     if (a.name === BLOCK_QUEUE_ALARM) {
       void blockQueueWatchdog();
       void blocksSyncWatchdog();
+      void followQueueWatchdog();
     }
   });
 
