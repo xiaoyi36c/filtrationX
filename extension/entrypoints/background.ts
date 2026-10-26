@@ -210,7 +210,14 @@ async function pumpFollowQueue(): Promise<void> {
       const worker = (await chrome.storage.local.get(BLOCK_QUEUE_WORKER_KEY))[
         BLOCK_QUEUE_WORKER_KEY
       ] as { tabId?: number | null } | undefined;
-      type FollowExecResult = { ok?: boolean; retryable?: boolean; skipped?: boolean; status?: number };
+      type FollowExecResult = {
+        ok?: boolean;
+        retryable?: boolean;
+        skipped?: boolean;
+        status?: number;
+        invalid?: boolean;
+        reason?: string;
+      };
       let res: FollowExecResult | null = null;
       const item = q.items[q.cursor]!;
       if (worker?.tabId) {
@@ -246,10 +253,23 @@ async function pumpFollowQueue(): Promise<void> {
         }
       } else {
         q.failed++;
-        q.lastError = res.status ? `X 返回 ${res.status}（可能已关注）` : "关注未执行";
-        // 熔断只看限流类失败（retryable = 429/5xx 等）；「已关注」这类
-        // 一次性失败只计数跳过，别把整个队列打断。
-        if (res.retryable) failStreak++;
+        if (res.invalid) {
+          // 封禁/注销账号：一次性失败，记入失效名单（UI 打标 + 新队列跳过），
+          // 不累计熔断——它不是限流，也别让失效账号撑爆失败提示。
+          q.invalid = (q.invalid ?? 0) + 1;
+          q.lastError = `${res.reason ?? "账号已失效"}：@${item.h}`;
+          try {
+            const { addInvalid } = await import("../lib/flj-sync");
+            await addInvalid([item.h]);
+          } catch {
+            // 记录失败不影响队列
+          }
+        } else {
+          q.lastError = res.status ? `X 返回 ${res.status}（可能已关注）` : "关注未执行";
+          // 熔断只看限流类失败（retryable = 429/5xx 等）；「已关注」这类
+          // 一次性失败只计数跳过，别把整个队列打断。
+          if (res.retryable) failStreak++;
+        }
       }
       if (failStreak >= FOLLOW_MAX_FAIL_STREAK) {
         q.running = false;
@@ -630,7 +650,7 @@ export default defineBackground(() => {
               })();
             }
           } else if (msg.type === "flj_status") {
-            const { getFljData, getFollowedSet } = await import("../lib/flj-sync");
+            const { getFljData, getFollowedSet, getInvalidSet } = await import("../lib/flj-sync");
             sendResponse({
               ok: true,
               data: {
@@ -639,8 +659,13 @@ export default defineBackground(() => {
                 progress: fljProgress,
                 sources: fljSources,
                 followed: [...(await getFollowedSet())],
+                invalid: [...(await getInvalidSet())],
               },
             });
+          } else if (msg.type === "flj_invalid_clear") {
+            const { clearInvalid } = await import("../lib/flj-sync");
+            await clearInvalid();
+            sendResponse({ ok: true });
           } else if (msg.type === "follow_queue_start") {
             const {
               getFljData,
@@ -648,14 +673,18 @@ export default defineBackground(() => {
               getFollowQueue,
               saveFollowQueue,
               getFollowedSet,
+              getInvalidSet,
             } = await import("../lib/flj-sync");
             const data = await getFljData();
             if (!data.bloggers.length) {
               sendResponse({ ok: false, error: "先同步榜单数据" });
             } else {
-              // 已关注过的直接排除，不占本轮名额。
+              // 已关注过 / 已失效（封禁、注销）的直接排除，不占本轮名额。
               const followed = await getFollowedSet();
-              const candidates = data.bloggers.filter((b) => !followed.has(b.h));
+              const invalid = await getInvalidSet();
+              const candidates = data.bloggers.filter(
+                (b) => !followed.has(b.h) && !invalid.has(b.h),
+              );
               const items = buildFollowQueue(candidates, {
                 skipNegative: msg.skipNegative !== false,
                 max: msg.max ?? 50,
@@ -673,6 +702,7 @@ export default defineBackground(() => {
                 q.cursor = 0;
                 q.done = 0;
                 q.failed = 0;
+                q.invalid = 0;
                 q.running = true;
                 q.lastError = null;
                 q.finishedAt = null;

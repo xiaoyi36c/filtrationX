@@ -470,6 +470,8 @@ export interface FollowQueueState {
   cursor: number;
   done: number;
   failed: number;
+  /** 本轮识别出的失效账号数（封禁/不存在，自动记入失效名单）。 */
+  invalid: number;
   running: boolean;
   lastError: string | null;
   finishedAt: number | null;
@@ -478,7 +480,16 @@ export interface FollowQueueState {
 export const FOLLOW_QUEUE_KEY = "xss:follow-queue:v1";
 
 export function emptyFollowQueue(): FollowQueueState {
-  return { items: [], cursor: 0, done: 0, failed: 0, running: false, lastError: null, finishedAt: null };
+  return {
+    items: [],
+    cursor: 0,
+    done: 0,
+    failed: 0,
+    invalid: 0,
+    running: false,
+    lastError: null,
+    finishedAt: null,
+  };
 }
 
 export async function getFollowQueue(): Promise<FollowQueueState> {
@@ -530,4 +541,46 @@ export async function addFollowed(handles: string[]): Promise<void> {
   const arr = [...set];
   const trimmed = arr.length > FOLLOWED_MAX ? arr.slice(arr.length - FOLLOWED_MAX) : arr;
   await chrome.storage.local.set({ [FOLLOWED_KEY]: trimmed });
+}
+
+// ---- 失效名单（本机） ----
+// 榜单数据混有已被 X 封禁 / 注销的账号（2026-10-26 用户实测：x.com/ariee_ziah
+// 打开是 Account suspended）。关注队列一旦从 X 收到 63/50/108/404 这类明确
+// 的「账号没了」错误码，就把 handle 记进来：UI 打「✗ 失效」标记、新队列自动
+// 跳过——不再每轮白试一遍。账号恢复（解封/改名回归）可用 UI 的「清除记录」。
+
+export const INVALID_KEY = "xss:flj:invalid:v1";
+const INVALID_MAX = 20_000;
+
+export async function getInvalidSet(): Promise<Set<string>> {
+  try {
+    const got = await chrome.storage.local.get(INVALID_KEY);
+    const v = got[INVALID_KEY];
+    return new Set(
+      Array.isArray(v) ? (v as unknown[]).filter((x): x is string => typeof x === "string") : [],
+    );
+  } catch {
+    return new Set();
+  }
+}
+
+export async function addInvalid(handles: string[]): Promise<void> {
+  const set = await getInvalidSet();
+  let changed = false;
+  for (const h of handles) {
+    const k = h.trim().toLowerCase();
+    if (k && !set.has(k)) {
+      set.add(k);
+      changed = true;
+    }
+  }
+  if (!changed) return;
+  const arr = [...set];
+  const trimmed = arr.length > INVALID_MAX ? arr.slice(arr.length - INVALID_MAX) : arr;
+  await chrome.storage.local.set({ [INVALID_KEY]: trimmed });
+}
+
+/** 账号可能解封/回归：清空失效名单，让下一轮队列重新尝试。 */
+export async function clearInvalid(): Promise<void> {
+  await chrome.storage.local.remove(INVALID_KEY);
 }

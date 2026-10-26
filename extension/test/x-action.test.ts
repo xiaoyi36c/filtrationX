@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { performXAction } from "../lib/x-action";
+import { classifyActionBody, performXAction } from "../lib/x-action";
 
 // performXAction serializes through a local promise chain (no navigator.locks —
 // foreign-compartment promises throw in Firefox content scripts) and POSTs via
@@ -101,4 +101,40 @@ test("native actions recheck protection after waiting behind an in-flight action
   } finally {
     restore();
   }
+});
+
+// ---- 失效账号识别（classifyActionBody）----
+// 榜单混有已被封禁/注销的账号，X 对它们的 follow 返回明确的错误码，
+// 必须与「已关注」「限流」区分开：失效账号记入名单后永远跳过。
+
+test("classifyActionBody：code 63 = 账号被封禁（Account suspended）", () => {
+  const body = JSON.stringify({
+    errors: [{ code: 63, message: "User has been suspended." }],
+  });
+  const r = classifyActionBody(403, body);
+  assert.equal(r.invalid, true);
+  assert.match(r.reason ?? "", /封禁/);
+});
+
+test("classifyActionBody：code 50/108 = 账号不存在", () => {
+  for (const code of [50, 108]) {
+    const body = JSON.stringify({ errors: [{ code, message: "User not found." }] });
+    const r = classifyActionBody(403, body);
+    assert.equal(r.invalid, true);
+    assert.match(r.reason ?? "", /不存在/);
+  }
+});
+
+test("classifyActionBody：HTTP 404 即使无 JSON 体也算失效", () => {
+  const r = classifyActionBody(404, "<html>Not Found</html>");
+  assert.equal(r.invalid, true);
+});
+
+test("classifyActionBody：已关注/限流等其它失败不算失效", () => {
+  // 403 无错误码（老语义「可能已关注」）
+  assert.equal(classifyActionBody(403, "").invalid, false);
+  assert.equal(classifyActionBody(403, JSON.stringify({ errors: [{ code: 32 }] })).invalid, false);
+  // 429 限流
+  assert.equal(classifyActionBody(429, "").invalid, false);
+  assert.equal(classifyActionBody(200, "{}").invalid, false);
 });

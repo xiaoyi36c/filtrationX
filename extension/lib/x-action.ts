@@ -18,6 +18,8 @@ export interface XActionAttempt {
   status?: number;
   retryable?: boolean;
   retryAfterMs?: number;
+  /** 账号已失效（被 X 封禁 / 不存在）——一次性失败，标记后永远跳过。 */
+  invalid?: boolean;
   /** Human-readable failure cause. Diagnostic only — never sent anywhere.
    *  Without this a failed mute/block is completely silent (the caller just
    *  returns false), which makes "auto-block does nothing" undebuggable. */
@@ -226,6 +228,9 @@ async function withLock<T>(fn: () => Promise<T>): Promise<T> {
 interface XhrResult {
   status: number;
   header(name: string): string | null;
+  /** 响应体文本。X 的 4xx 都带 JSON errors[{code,message}]，错误码是区分
+   *  「已关注」和「账号封禁/不存在」的唯一途径。 */
+  text(): string;
 }
 
 /**
@@ -268,6 +273,13 @@ function xhrPost(
               return null;
             }
           },
+          text: () => {
+            try {
+              return xhr.responseText ?? "";
+            } catch {
+              return "";
+            }
+          },
         });
       xhr.onerror = () => reject(new Error("网络错误"));
       xhr.ontimeout = () => reject(new Error(`请求超时（${timeoutMs}ms）`));
@@ -278,6 +290,43 @@ function xhrPost(
       reject(e);
     }
   });
+}
+
+/**
+ * 从 X 的错误响应里识别「账号已失效」（纯函数，可测）。
+ *
+ * 榜单数据混有已被封禁 / 注销的账号——对它们调用 friendships/create 会得到
+ * 403/404 + JSON errors[{code,message}]，此前被笼统当成「可能已关注」，导致
+ * 失效账号每轮队列都重试一遍、失败计数虚高。错误码含义：
+ *   63  = User has been suspended（Account suspended 页）
+ *   50  = User not found
+ *   108 = Cannot find specified user
+ * HTTP 404 同样说明账号没了。返回 invalid=true 的账号应被永久记录、跳过。
+ */
+export function classifyActionBody(
+  status: number,
+  bodyText: string,
+): { invalid: boolean; reason?: string } {
+  let code: number | null = null;
+  let message = "";
+  try {
+    const box = JSON.parse(bodyText) as { errors?: { code?: unknown; message?: unknown }[] };
+    const e0 = Array.isArray(box?.errors) ? box.errors[0] : undefined;
+    if (e0 && typeof e0.code === "number") code = e0.code;
+    if (e0 && typeof e0.message === "string") message = e0.message;
+  } catch {
+    /* 响应体不是 JSON（HTML 错误页等）→ 只按状态码判断 */
+  }
+  if (code === 63 || code === 50 || code === 108 || status === 404) {
+    return {
+      invalid: true,
+      reason:
+        code === 63 || /suspend/i.test(message)
+          ? "账号已被 X 封禁（Account suspended）"
+          : "账号不存在（已注销或从未存在）",
+    };
+  }
+  return { invalid: false };
 }
 
 /** Single first-party mute/block call. Returns ok/false + retry hints. */
@@ -326,17 +375,18 @@ async function rawAction(
     }
     const status = res.status;
     const ok = status >= 200 && status < 300;
+    const cls = classifyActionBody(status, res.text());
     const retryable =
-      status === 408 || status === 425 || status === 429 || status >= 500;
+      !cls.invalid && (status === 408 || status === 425 || status === 429 || status >= 500);
     return {
       ok,
       status,
       retryAfterMs: parseRetryAfterMs(res.header("retry-after")),
       retryable,
-      // 403/401 from X almost always means the CSRF token or session is not
-      // accepted (or X now wants a transaction id) — surface it instead of
-      // failing silently.
-      reason: ok ? undefined : `X 返回 HTTP ${status}`,
+      invalid: cls.invalid,
+      // 失效账号给出具体原因（封禁/不存在）；其余 403/401 仍是 CSRF/会话类
+      // 提示——「可能已关注」的老语义保持不变。
+      reason: ok ? undefined : (cls.reason ?? `X 返回 HTTP ${status}`),
     };
   } catch (e) {
     return { ok: false, retryable: true, reason: `请求异常：${errText(e)}` };

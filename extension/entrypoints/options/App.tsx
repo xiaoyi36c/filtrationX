@@ -3849,6 +3849,7 @@ function FljPage() {
   const [prog, setProg] = useState<FljSyncProgress | null>(null);
   const [sources, setSources] = useState<FljSourceResult[] | null>(null);
   const [followed, setFollowed] = useState<Set<string>>(new Set());
+  const [invalid, setInvalid] = useState<Set<string>>(new Set());
   const [q, setQ] = useState<FollowQueueState | null>(null);
   const [search, setSearch] = useState("");
   const [cat, setCat] = useState("all");
@@ -3871,12 +3872,14 @@ function FljPage() {
           progress: FljSyncProgress | null;
           sources: FljSourceResult[] | null;
           followed: string[];
+          invalid: string[];
         };
         setData(d.flj);
         setSyncing(d.syncing);
         setProg(d.progress);
         setSources(d.sources);
         if (Array.isArray(d.followed)) setFollowed(new Set(d.followed));
+        if (Array.isArray(d.invalid)) setInvalid(new Set(d.invalid));
       }
       const fq = await bg({ type: "follow_queue_status" });
       if (alive && fq?.ok) setQ(fq.data as unknown as FollowQueueState);
@@ -3935,10 +3938,17 @@ function FljPage() {
     await bg({ type: "follow_queue_stop" });
   };
 
+  // 账号可能解封/回归：清空失效记录，下一轮队列重新尝试这些 handle。
+  const clearInvalidRecords = async () => {
+    await bg({ type: "flj_invalid_clear" });
+    setInvalid(new Set());
+  };
+
   const pending = Math.max(0, (q?.items.length ?? 0) - (q?.cursor ?? 0));
   // 已关注可视化：圆环统计「榜单内已通过本扩展关注过」的占比。
   const followedCount = bloggers.filter((b) => followed.has(b.h)).length;
-  const followableRows = rows.filter((b) => !followed.has(b.h)).length;
+  const invalidCount = bloggers.filter((b) => invalid.has(b.h)).length;
+  const followableRows = rows.filter((b) => !followed.has(b.h) && !invalid.has(b.h)).length;
   const ringPct = bloggers.length ? Math.round((followedCount / bloggers.length) * 100) : 0;
   const R = 22;
   const CIRC = 2 * Math.PI * R;
@@ -4125,10 +4135,26 @@ function FljPage() {
               )}
             </div>
 
+            {invalidCount > 0 && (
+              <p className="mt-3 flex flex-wrap items-center gap-2 text-[12px] text-fg-2">
+                <span className="rounded bg-danger/15 px-1.5 py-0.5 text-danger">
+                  ✗ 失效 {invalidCount.toLocaleString("zh-CN")} 个
+                </span>
+                <span>已被 X 封禁或注销，关注队列会自动跳过。</span>
+                <button
+                  onClick={() => void clearInvalidRecords()}
+                  className="text-accent underline-offset-2 hover:underline"
+                >
+                  清除记录（重新尝试）
+                </button>
+              </p>
+            )}
             {q && (q.running || q.cursor > 0) && (
               <p className="mt-3 text-[12px] text-fg-2">
                 {t("flj.progress")}：{q.done.toLocaleString("zh-CN")} 已完成 /{" "}
-                {q.failed.toLocaleString("zh-CN")} 失败 / 剩余 {pending.toLocaleString("zh-CN")}
+                {q.failed.toLocaleString("zh-CN")} 失败
+                {q.invalid ? `（其中失效 ${q.invalid.toLocaleString("zh-CN")}）` : ""} / 剩余{" "}
+                {pending.toLocaleString("zh-CN")}
                 {q.lastError ? ` · ${q.lastError}` : ""}
                 {q.running ? " · 执行中" : ""}
               </p>
@@ -4153,7 +4179,10 @@ function FljPage() {
               </thead>
               <tbody>
                 {shown.map((b) => (
-                  <tr key={b.h} className={`${trHover} ${followed.has(b.h) ? "opacity-60" : ""}`}>
+                  <tr
+                    key={b.h}
+                    className={`${trHover} ${followed.has(b.h) || invalid.has(b.h) ? "opacity-60" : ""}`}
+                  >
                     <td className={td}>
                       <div className="flex items-center gap-2.5">
                         <AvatarLink handle={b.h} url={b.avatar} name={b.n || b.h} />
@@ -4180,6 +4209,14 @@ function FljPage() {
                     </td>
                     <td className={td}>
                       <div className="flex flex-wrap gap-1 text-[11px]">
+                        {invalid.has(b.h) && (
+                          <span
+                            className="rounded bg-danger/15 px-1.5 py-0.5 text-danger"
+                            title="X 返回账号封禁/不存在——关注队列自动跳过"
+                          >
+                            ✗ 失效
+                          </span>
+                        )}
                         {followed.has(b.h) && (
                           <span className="rounded bg-ok/15 px-1.5 py-0.5 text-ok">✓ 已关注</span>
                         )}
@@ -4246,7 +4283,7 @@ function FljPage() {
           <>
             <p>
               将按当前筛选关注最多 <b>{Math.min(batch, followableRows).toLocaleString("zh-CN")}</b>{" "}
-              位新博主（已排除负面标签{skipNegative ? "" : "未"}、已关注过的自动跳过）。
+              位新博主（已排除负面标签{skipNegative ? "" : "未"}、已关注过的和已失效的自动跳过）。
             </p>
             <p className="mt-2 text-fg-3">
               节奏约 2-3 秒/个，走你自己的 X 登录态；执行期间请保持一个打开的 x.com
