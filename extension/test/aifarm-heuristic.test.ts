@@ -1,5 +1,6 @@
-// 内置 aifarm 启发式（lib/aifarm-heuristic.ts）的精度边界：
-// 三重确认（年轻 + 非人发帖量 + 养号话术）缺一不可。
+// 内置 aifarm 启发式 v2（lib/aifarm-heuristic.ts）的精度边界：
+// 通道 A = 年轻 + 日均≥30 + 话术（简介/昵称/回复/推文，归一化匹配）；
+// 通道 B = 年轻(<30 天) + 日均≥60 + 币圈/web3/炒股类垂直简介。
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { matchAifarmHeuristic } from "../lib/aifarm-heuristic";
@@ -24,6 +25,27 @@ test("2026-10-26 实测停用样本号命中（年轻 + 日均50 + 互fo话术�
   assert.match(text, /互fo/);
 });
 
+test("归一化拦住变体：互 fo / 互f0 / 交个朋友", () => {
+  assert.ok(matchAifarmHeuristic(sig({ bio: "欢迎 互 fo" })), "空白变体");
+  assert.ok(matchAifarmHeuristic(sig({ bio: "互f0，走个面儿" })), "f0 变体");
+  assert.ok(matchAifarmHeuristic(sig({ bio: "来我主页交个朋友" })), "交个朋友");
+});
+
+test("话术在回复里也算（简介干净）", () => {
+  const r = matchAifarmHeuristic(
+    sig({ bio: "记录日常", triggeringComment: "兄弟有空来浇朋友啊😂" }),
+  );
+  assert.ok(r);
+});
+
+test("通道 B：无话术但 <30 天日均 60+ 且币圈垂直简介", () => {
+  const r = matchAifarmHeuristic(
+    sig({ accountAgeDays: 20, statusesCount: 1300, bio: "专注 web3 与 AI 一级市场" }),
+  );
+  assert.ok(r);
+  assert.match(r?.[0] ?? "", /垂直词/);
+});
+
 test("老号高产不命中（<90 天门槛）", () => {
   assert.equal(matchAifarmHeuristic(sig({ accountAgeDays: 400, statusesCount: 20000 })), null);
 });
@@ -36,9 +58,16 @@ test("缺发帖量数据不命中（宁漏勿误）", () => {
   assert.equal(matchAifarmHeuristic(sig({ statusesCount: undefined })), null);
 });
 
-test("高频年轻号但简介无养号话术不命中", () => {
+test("高频年轻号但无话术、简介非农场垂直不命中", () => {
   assert.equal(
     matchAifarmHeuristic(sig({ bio: "产品经理，记录日常与思考", displayName: "阿明" })),
+    null,
+  );
+  // 通道 B 边界：日均不足 60 也不走 B
+  assert.equal(
+    matchAifarmHeuristic(
+      sig({ accountAgeDays: 20, statusesCount: 1000, bio: "web3 学习笔记" }),
+    ),
     null,
   );
 });
@@ -46,10 +75,4 @@ test("高频年轻号但简介无养号话术不命中", () => {
 test("话术在昵称里也算", () => {
   const r = matchAifarmHeuristic(sig({ bio: "", displayName: "币圈互关哥" }));
   assert.ok(r);
-});
-
-test("浇朋友 / 走个面儿 / 串门类模板话术命中", () => {
-  for (const bio of ["来我主页浇朋友", "有空走个面儿", "蓝v互关私我"]) {
-    assert.ok(matchAifarmHeuristic(sig({ bio })), bio);
-  }
 });
