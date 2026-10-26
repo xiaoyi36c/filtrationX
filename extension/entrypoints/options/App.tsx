@@ -83,7 +83,7 @@ import {
   tweetUrl,
 } from "../../lib/store";
 import { clearDetectionCache } from "../../lib/cache";
-import type { FljData, FollowQueueState } from "../../lib/flj-sync";
+import { FLJ_CATEGORY_ZH, type FljData, type FollowQueueState } from "../../lib/flj-sync";
 import type { Label } from "../../lib/types";
 
 const REPO = BRAND.repo;
@@ -3839,6 +3839,7 @@ function FljPage() {
   const [syncing, setSyncing] = useState(false);
   const [q, setQ] = useState<FollowQueueState | null>(null);
   const [search, setSearch] = useState("");
+  const [cat, setCat] = useState("all");
   const [skipNegative, setSkipNegative] = useState(true);
   const [excludeFushi, setExcludeFushi] = useState(false);
   const [batch, setBatch] = useState(50);
@@ -3882,10 +3883,11 @@ function FljPage() {
     const s = search.trim().toLowerCase();
     return bloggers.filter((b) => {
       if (excludeFushi && b.fushi) return false;
+      if (cat !== "all" && !(b.cats ?? []).includes(cat)) return false;
       if (s && !`${b.h} ${b.n ?? ""}`.toLowerCase().includes(s)) return false;
       return true;
     });
-  }, [bloggers, excludeFushi, search]);
+  }, [bloggers, excludeFushi, cat, search]);
   const shown = rows.slice(0, limit);
 
   const startFollow = async () => {
@@ -3943,6 +3945,24 @@ function FljPage() {
             <label className="flex cursor-pointer items-center gap-1.5">
               <input type="checkbox" checked={excludeFushi} onChange={(e) => setExcludeFushi(e.target.checked)} />
               {t("flj.excludeFushi")}
+            </label>
+            <label className="flex items-center gap-1.5">
+              榜单
+              <select
+                value={cat}
+                onChange={(e) => {
+                  setCat(e.target.value);
+                  setLimit(200);
+                }}
+                className="rounded-md border border-border-2 bg-transparent px-2 py-1 text-[12px]"
+              >
+                <option value="all">全部</option>
+                {Object.entries(FLJ_CATEGORY_ZH).map(([id, label]) => (
+                  <option key={id} value={id}>
+                    {label}
+                  </option>
+                ))}
+              </select>
             </label>
             <label className="flex items-center gap-1.5">
               {t("flj.batch")}
@@ -4050,6 +4070,18 @@ function FljPage() {
                           .map((p) => (
                             <span key={p} className="rounded bg-accent/15 px-1.5 py-0.5 text-accent">
                               {POS_TAG_ZH[p] ?? p}
+                            </span>
+                          ))}
+                        {(b.tags ?? []).map((tag) => (
+                          <span key={tag} className="rounded bg-accent/10 px-1.5 py-0.5 text-accent">
+                            {tag}
+                          </span>
+                        ))}
+                        {(b.cats ?? [])
+                          .filter((c) => c !== cat)
+                          .map((c) => (
+                            <span key={c} className="rounded bg-fg/5 px-1.5 py-0.5 text-fg-3">
+                              {FLJ_CATEGORY_ZH[c] ?? c}
                             </span>
                           ))}
                       </div>

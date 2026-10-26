@@ -569,15 +569,15 @@ export default defineBackground(() => {
               fljSyncRunning = true;
               sendResponse({ ok: true, syncing: true });
               void (async () => {
-                const { fetchFljRankings, getFljData, saveFljData } = await import("../lib/flj-sync");
+                const { fetchAllFljCategories, getFljData, saveFljData } = await import("../lib/flj-sync");
                 try {
-                  const { bloggers, total } = await fetchFljRankings("comments", (m) =>
+                  const { bloggers } = await fetchAllFljCategories((m) =>
                     console.debug("[MXGA] flj", m),
                   );
                   const prev = await getFljData();
                   await saveFljData({
                     syncedAt: bloggers.length ? Date.now() : prev.syncedAt,
-                    total: total || bloggers.length,
+                    total: bloggers.length,
                     bloggers: bloggers.length ? bloggers : prev.bloggers,
                   });
                 } catch (e) {

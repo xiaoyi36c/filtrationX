@@ -30,13 +30,29 @@ export interface FljBlogger {
   verifiedReal?: boolean;
   /** 负面标签：stolen_photo、fake_gender、scam… */
   neg: string[];
-  /** 正面标签。 */
+  /** 正面标签（positive_tags + positive_types）。 */
   pos: string[];
+  /** 站点给的中文画像标签（score_detail.account_tags：福利博主/可线下…）。 */
+  tags?: string[];
+  /** 出现在哪些榜单分类（comments/latest/score/fushi/threshold/av）。 */
+  cats?: string[];
   /** 互动级别：high / medium / low。 */
   engagement?: string;
   followers?: number;
   avatar?: string;
 }
+
+/** 榜单分类（/api/rankings/overview 的 id 集合）及中文名。 */
+export const FLJ_CATEGORY_ZH: Record<string, string> = {
+  comments: "最新爆料",
+  latest: "最新检索",
+  score: "评分最高",
+  fushi: "风俗",
+  threshold: "门槛",
+  av: "AV女优",
+};
+/** overview 拉不到时的兜底分类表。 */
+const FLJ_FALLBACK_CATEGORIES = Object.keys(FLJ_CATEGORY_ZH);
 
 export interface FljData {
   syncedAt: number | null;
@@ -86,8 +102,19 @@ export function parseRankingsPayload(payload: unknown): {
       const neg = Array.isArray(it.negative_tags)
         ? (it.negative_tags as unknown[]).filter((x): x is string => typeof x === "string")
         : [];
-      const pos = Array.isArray(it.positive_tags)
-        ? (it.positive_tags as unknown[]).filter((x): x is string => typeof x === "string")
+      // 正面标签：positive_tags（英文枚举）+ positive_types（verified_real/
+      // praised/recommended…），合并去重。
+      const pos = [
+        ...(Array.isArray(it.positive_tags)
+          ? (it.positive_tags as unknown[]).filter((x): x is string => typeof x === "string")
+          : []),
+        ...(Array.isArray(detail.positive_types)
+          ? (detail.positive_types as unknown[]).filter((x): x is string => typeof x === "string")
+          : []),
+      ].filter((x, i, a) => a.indexOf(x) === i);
+      // 站点中文画像标签（福利博主/有门槛费/可线下/AV女優…）。
+      const tags = Array.isArray(detail.account_tags)
+        ? (detail.account_tags as unknown[]).filter((x): x is string => typeof x === "string")
         : [];
       out.push({
         h,
@@ -99,6 +126,7 @@ export function parseRankingsPayload(payload: unknown): {
         ...(pos.includes("verified_real") ? { verifiedReal: true } : {}),
         neg,
         pos,
+        ...(tags.length ? { tags } : {}),
         ...(typeof detail.engagement === "string" ? { engagement: detail.engagement } : {}),
         ...(typeof detail.followers === "number" ? { followers: detail.followers } : {}),
         ...(typeof it.avatar_url === "string" && it.avatar_url ? { avatar: it.avatar_url } : {}),
@@ -133,7 +161,76 @@ export async function saveFljData(d: FljData): Promise<void> {
   await chrome.storage.local.set({ [FLJ_KEY]: d });
 }
 
-/** 后台用：拉取榜单全部分页（顺序、带间隔），失败页跳过并继续。 */
+/** 多分类结果合并：同一账号可出现在多个分类（overview 显示重叠很常见），
+ *  按 handle 去重、记录 cats、字段取并集/最高分，按评分降序输出。纯函数。 */
+export function mergeCategoryResults(
+  results: { category: string; bloggers: FljBlogger[] }[],
+): FljBlogger[] {
+  const byH = new Map<string, FljBlogger>();
+  for (const { category, bloggers } of results) {
+    for (const b of bloggers) {
+      const prev = byH.get(b.h);
+      if (prev) {
+        prev.cats = [...new Set([...(prev.cats ?? []), category])];
+        if (!prev.n && b.n) prev.n = b.n;
+        if ((b.score ?? -1) > (prev.score ?? -1)) prev.score = b.score;
+        if (b.welfare) prev.welfare = true;
+        if (b.fushi) prev.fushi = true;
+        if (b.threshold) prev.threshold = true;
+        if (b.verifiedReal) prev.verifiedReal = true;
+        if ((b.followers ?? 0) > (prev.followers ?? 0)) prev.followers = b.followers;
+        prev.pos = [...new Set([...prev.pos, ...b.pos])];
+        prev.neg = [...new Set([...prev.neg, ...b.neg])];
+        prev.tags = [...new Set([...(prev.tags ?? []), ...(b.tags ?? [])])];
+        if (!prev.avatar && b.avatar) prev.avatar = b.avatar;
+      } else {
+        byH.set(b.h, { ...b, cats: [category] });
+      }
+    }
+  }
+  return [...byH.values()].sort((a, b) => (b.score ?? -1) - (a.score ?? -1));
+}
+
+/** 榜单分类总览（/api/rankings/overview）：取全部分类 id；失败用兜底表。 */
+export async function fetchFljOverview(): Promise<{ id: string }[]> {
+  try {
+    const r = await fetch(`${FLJ_ORIGIN}/api/rankings/overview`, {
+      headers: { accept: "application/json" },
+    });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const arr = (await r.json()) as unknown;
+    if (Array.isArray(arr)) {
+      const ids = arr
+        .map((x) => (x && typeof x === "object" ? (x as { id?: unknown }).id : null))
+        .filter((x): x is string => typeof x === "string");
+      if (ids.length) return ids.map((id) => ({ id }));
+    }
+  } catch {
+    // fall through to fallback
+  }
+  return FLJ_FALLBACK_CATEGORIES.map((id) => ({ id }));
+}
+
+/** 后台用：同步全部分类——overview 拿分类列表 → 每个分类翻页拉全 → 合并
+ *  去重（cats 记录来源分类）。任一分类失败不影响其余。 */
+export async function fetchAllFljCategories(
+  log = (_: string) => {},
+): Promise<{ bloggers: FljBlogger[]; errors: string[] }> {
+  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+  const cats = await fetchFljOverview();
+  const results: { category: string; bloggers: FljBlogger[] }[] = [];
+  const errors: string[] = [];
+  for (const { id } of cats) {
+    const r = await fetchFljRankings(id, log);
+    results.push({ category: id, bloggers: r.bloggers });
+    errors.push(...r.errors);
+    log(`分类 ${id}：${r.bloggers.length} 条`);
+    await sleep(FLJ_PAGE_DELAY_MS + Math.floor(Math.random() * FLJ_PAGE_JITTER_MS));
+  }
+  return { bloggers: mergeCategoryResults(results), errors };
+}
+
+/** 后台用：拉取单个榜单分类的全部分页（顺序、带间隔），失败页跳过并继续。 */
 export async function fetchFljRankings(
   category = "comments",
   log = (_: string) => {},
