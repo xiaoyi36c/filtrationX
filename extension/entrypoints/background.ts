@@ -325,47 +325,64 @@ async function pumpFollowQueue(): Promise<void> {
           await saveFollowQueue(q);
           return;
         } else {
-          // 429 有歧义：X 对「不存在的账号」也常统一返回 429（风控掩盖账号
-          // 存在性）——先用只读查询核实，别把账号不存在误报成限流
-          // （2026-10-27 用户实测 x.com/tiaotiaosheep）。
-          let verifiedDead = false;
-          let deadReason = "";
+          // 429 有歧义：X 对「不存在的账号」和「已在关注列表的重复关注」都
+          // 常统一返回 429——先用只读查询核实，再决定记失效 / 补记成功 /
+          // 按限流等待（2026-10-27 用户实测两例：误报限流、误报不存在）。
+          let v: { exists?: boolean | null; following?: boolean; reason?: string } | null = null;
           if (res.status === 429 && worker?.tabId) {
             try {
               let settled = false;
-              const v = (await Promise.race([
+              v = (await Promise.race([
                 chrome.tabs
                   .sendMessage(worker.tabId, { type: "follow_verify", handle: item.h })
                   .then((r) => {
                     settled = true;
-                    return r as { exists?: boolean | null; reason?: string };
+                    return r as { exists?: boolean | null; following?: boolean; reason?: string };
                   }),
                 new Promise<null>((resolve) => {
                   setTimeout(() => {
                     if (!settled) resolve(null);
                   }, 30_000);
                 }),
-              ])) as { exists?: boolean | null; reason?: string } | null;
-              if (v && v.exists === false) {
-                verifiedDead = true;
-                deadReason = v.reason ?? "账号不存在（经查询证实）";
-              }
+              ])) as { exists?: boolean | null; following?: boolean; reason?: string } | null;
             } catch {
               /* 查询失败按限流处理 */
             }
           }
-          if (verifiedDead) {
+          if (v && v.exists === false) {
+            // 核实确认不存在/封禁：记入失效名单（UI 打标 + 新队列跳过）。
+            q.failed++;
+            const deadReason = v.reason ?? "账号不存在（经查询证实）";
             q.invalid = (q.invalid ?? 0) + 1;
             q.lastError = `${deadReason}：@${item.h}`;
             deadStreak = 0;
-            pushFollowLog(q, { h: item.h, n: item.n, ok: false, note: `${deadReason}（X 返回 429 下核实）` });
+            pushFollowLog(q, { h: item.h, n: item.n, ok: false, note: deadReason });
             try {
               const { addInvalid } = await import("../lib/flj-sync");
               await addInvalid([item.h]);
             } catch {
               // 记录失败不影响队列
             }
+          } else if (v && v.exists === true && v.following) {
+            // 账号存在且已在关注列表：本机记录缺失（重装/重载插件），补记
+            // 后按成功处理——X 端已关注，无需再动。
+            q.done++;
+            q.lastError = null;
+            deadStreak = 0;
+            pushFollowLog(q, {
+              h: item.h,
+              n: item.n,
+              ok: true,
+              note: "已在关注列表（本机记录缺失，已补记）",
+            });
+            try {
+              const { addFollowed } = await import("../lib/flj-sync");
+              await addFollowed([item.h]);
+            } catch {
+              // 记录失败不影响队列
+            }
           } else {
+            q.failed++;
             q.lastError =
               res.status === 429
                 ? "限流（429）——X 要求放慢速度"

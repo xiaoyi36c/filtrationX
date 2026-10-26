@@ -309,21 +309,100 @@ export interface UserLookupResult {
   status: number;
   /** true=存在 false=确认不存在/封禁 null=无法判断（限流/网络等）。 */
   exists: boolean | null;
+  /** 查看者是否已在关注该账号（200 响应里带出的关注关系）。 */
+  following?: boolean;
   reason?: string;
 }
 
+// GraphQL UserByScreenName：X 网页端自己的查询（比 v1.1 users/show 可靠，
+// 响应带 legacy.following 关注关系）。queryId 会被 X 轮换——400/404 时本
+// 会话禁用 GraphQL，回落 v1.1。
+const USER_BY_SCREEN_NAME_QUERY_ID = "xc18f1gVKEgFMZrqI6ciaw";
+let gqlLookupDisabled = false;
+
+const GQL_USER_FEATURES: Record<string, boolean> = {
+  hidden_profile_subscriptions_enabled: true,
+  rweb_tipjar_consumption_enabled: true,
+  responsive_web_graphql_exclude_directive_enabled: true,
+  verified_phone_label_enabled: false,
+  subscriptions_verification_info_is_identity_verified_enabled: true,
+  subscriptions_verification_info_verified_since_enabled: true,
+  responsive_web_graphql_timeline_navigation_enabled: true,
+  responsive_web_graphql_skip_directive_enabled: false,
+};
+
+/** GraphQL UserByScreenName 单次查询。 */
+async function gqlUserByScreenName(name: string): Promise<UserLookupResult> {
+  const csrf = ct0();
+  if (!csrf) return { status: 0, exists: null, reason: "未取到 ct0" };
+  const params = new URLSearchParams({
+    variables: JSON.stringify({ screen_name: name }),
+    features: JSON.stringify(GQL_USER_FEATURES),
+    fieldToggles: JSON.stringify({ withAuxiliaryUserLabels: false }),
+  });
+  const res = await xhrRequest(
+    "GET",
+    `${apiOrigin()}/i/api/graphql/${USER_BY_SCREEN_NAME_QUERY_ID}/UserByScreenName?${params}`,
+    { authorization: FALLBACK_X_BEARER, "x-csrf-token": csrf, accept: "application/json" },
+    null,
+    15_000,
+  );
+  // queryId 失效或 features 校验不过 → 本会话禁用 GraphQL。
+  if (res.status === 400 || res.status === 404) {
+    return { status: res.status, exists: null, reason: "unsupported" };
+  }
+  if (res.status === 429) return { status: 429, exists: null, reason: "rate limited" };
+  if (res.status !== 200) {
+    return { status: res.status, exists: null, reason: `HTTP ${res.status}` };
+  }
+  try {
+    const box = JSON.parse(res.text()) as {
+      data?: {
+        user?: {
+          result?: { reason?: string; rest_id?: string; legacy?: { following?: boolean } };
+        };
+      };
+    };
+    const result = box.data?.user?.result;
+    if (!result) return { status: 200, exists: false, reason: "账号不存在" };
+    if (result.reason === "Suspended") {
+      return { status: 200, exists: false, reason: "账号已被 X 封禁（Account suspended）" };
+    }
+    return {
+      status: 200,
+      exists: true,
+      ...(result.legacy?.following ? { following: true } : {}),
+    };
+  } catch {
+    return { status: 200, exists: null, reason: "响应解析失败" };
+  }
+}
+
 /**
- * 只读查询账号是否存在（v1.1 users/show.json，公开 bearer + 会话 ct0）。
+ * 只读查询账号是否存在（GraphQL UserByScreenName，v1.1 兜底）。
  *
- * 用途：follow 返回 429 时，X 对「不存在账号」也常返回 429（风控统一响应），
- * 状态码无法区分真限流和账号失效——写队列据此核实，确凿不存在的按失效
- * 记档，不再误报成限流。GET 与写动作共用同一把锁，避免交叉触发风控。
+ * 用途：follow 返回 429 时，X 对「不存在账号」和「已在关注列表的重复关注」
+ * 都常统一返回 429，状态码无法区分——写队列据此核实。注意 404 的歧义：
+ * 端点下线的路由 404 ≠ 账号不存在，只有明确的用户错误码（63/50/108）或
+ * GraphQL 的 result 缺失才算「确认不存在」。
  */
 export async function lookupUser(handle: string): Promise<UserLookupResult> {
   return withLock(async () => {
     const name = normalizeHandle(handle);
     if (!name || !/^[A-Za-z0-9_]{1,15}$/.test(name)) {
       return { status: 0, exists: false, reason: "handle 非法" };
+    }
+    if (!gqlLookupDisabled) {
+      try {
+        const r = await gqlUserByScreenName(name);
+        if (r.reason === "unsupported") {
+          gqlLookupDisabled = true;
+        } else {
+          return r;
+        }
+      } catch {
+        /* GraphQL 异常 → 回落 v1.1 */
+      }
     }
     const csrf = ct0();
     if (!csrf) return { status: 0, exists: null, reason: "未取到 ct0" };
@@ -335,9 +414,18 @@ export async function lookupUser(handle: string): Promise<UserLookupResult> {
         null,
         15_000,
       );
-      if (res.status === 200) return { status: 200, exists: true };
+      if (res.status === 200) {
+        // 200 响应体里带查看者的关注关系。
+        try {
+          const u = JSON.parse(res.text()) as { following?: boolean };
+          return { status: 200, exists: true, ...(u.following ? { following: true } : {}) };
+        } catch {
+          return { status: 200, exists: true };
+        }
+      }
       const cls = classifyActionBody(res.status, res.text());
-      if (cls.kind === "invalid") {
+      // 只信明确的用户错误码；路由 404（端点下线）/限流一律「无法判断」。
+      if (cls.kind === "invalid" && res.status !== 404) {
         return {
           status: res.status,
           exists: false,
