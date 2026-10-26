@@ -187,8 +187,11 @@ let fljProgress: {
 } | null = null;
 let fljSources: import("../lib/flj-sync").FljSourceResult[] | null = null;
 let followQueuePumping = false;
-const FOLLOW_PUMP_INTERVAL_MS = 1800;
-const FOLLOW_PUMP_JITTER_MS = 800;
+// 2026-10-27 提速反馈：2s/个触发 X 限流（Sorry, you are rate limited）。
+// 关注成功后等 10s 再下一个；「已关注/不存在」这类没有实际写操作的跳过
+// 不等待（见泵内 lastOutcome）。
+const FOLLOW_PUMP_INTERVAL_MS = 10_000;
+const FOLLOW_PUMP_JITTER_MS = 2_000;
 const FOLLOW_MAX_FAIL_STREAK = 5;
 // 连续非限流失败（多为「已关注」403，也可能是 ct0 过期——后者 retryable=false
 // 触发不了限流熔断）的熔断线：到线就停，别让登录态失效时把队列全程空跑。
@@ -281,11 +284,15 @@ async function pumpFollowQueue(): Promise<void> {
         return;
       }
       q.cursor++;
+      // 本条结果有没有对 X 产生实际写操作：没有的（跳过/失效/已关注补记）
+      // 下一条不再等 10s，直接继续。
+      let outcome: "write" | "skip" | "fail" = "write";
       if (res.ok || res.skipped) {
         q.done++;
         q.lastError = null;
         failStreak = 0;
         deadStreak = 0;
+        if (res.skipped) outcome = "skip";
         pushFollowLog(q, {
           h: item.h,
           n: item.n,
@@ -306,6 +313,7 @@ async function pumpFollowQueue(): Promise<void> {
         if (res.invalid) {
           // 封禁/注销账号：一次性失败，记入失效名单（UI 打标 + 新队列跳过）。
           // 请求本身是通的（认证没问题），重置连续失败计数。
+          outcome = "skip";
           q.invalid = (q.invalid ?? 0) + 1;
           q.lastError = `${res.reason ?? "账号已失效"}：@${item.h}`;
           deadStreak = 0;
@@ -351,6 +359,7 @@ async function pumpFollowQueue(): Promise<void> {
           }
           if (v && v.exists === false) {
             // 核实确认不存在/封禁：记入失效名单（UI 打标 + 新队列跳过）。
+            outcome = "skip";
             q.failed++;
             const deadReason = v.reason ?? "账号不存在（经查询证实）";
             q.invalid = (q.invalid ?? 0) + 1;
@@ -366,6 +375,7 @@ async function pumpFollowQueue(): Promise<void> {
           } else if (v && v.exists === true && v.following) {
             // 账号存在且已在关注列表：本机记录缺失（重装/重载插件），补记
             // 后按成功处理——X 端已关注，无需再动。
+            outcome = "skip";
             q.done++;
             q.lastError = null;
             deadStreak = 0;
@@ -382,6 +392,7 @@ async function pumpFollowQueue(): Promise<void> {
               // 记录失败不影响队列
             }
           } else {
+            outcome = "fail";
             q.failed++;
             q.lastError =
               res.status === 429
@@ -418,13 +429,15 @@ async function pumpFollowQueue(): Promise<void> {
         return;
       }
       await saveFollowQueue(q);
-      // 429/5xx 后 x-action 已记了退避（429 默认 45s）：与其让下一个 exec 在
-      // content script 里静默等冷却（UI 像冻住，MV3 SW 还可能被空闲回收），
-      // 不如在泵里分块等完——每 5s 写一次 lastError 倒计时（UI 2s 轮询可见）
-      // 并碰一次 storage 重置 SW 空闲计时器。用户点「停止」随时退出。
-      const backoffMs = !res.ok && !res.skipped && res.retryable
-        ? Math.max(res.retryAfterMs ?? 0, res.status === 429 ? 45_000 : 8_000)
-        : 0;
+      // 429/5xx 且确认是真限流（非「已关注/不存在」的跳过类）后，x-action 已
+      // 记了退避（429 默认 45s）：与其让下一个 exec 在 content script 里静默
+      // 等冷却（UI 像冻住，MV3 SW 还可能被空闲回收），不如在泵里分块等完——
+      // 每 5s 写一次 lastError 倒计时（UI 2s 轮询可见）并碰一次 storage 重置
+      // SW 空闲计时器。用户点「停止」随时退出。
+      const backoffMs =
+        outcome === "fail" && res.retryable
+          ? Math.max(res.retryAfterMs ?? 0, res.status === 429 ? 45_000 : 8_000)
+          : 0;
       if (backoffMs > 0) {
         let left = Math.min(backoffMs, 600_000); // retry-after 离谱值兜底
         while (left > 0) {
@@ -443,7 +456,14 @@ async function pumpFollowQueue(): Promise<void> {
         }
         if (left > 0) return; // 用户已停止
       }
-      await blockQueueSleep(FOLLOW_PUMP_INTERVAL_MS + Math.floor(Math.random() * FOLLOW_PUMP_JITTER_MS));
+      // 关注成功等 10s 再下一个（X 风控）；跳过类（已关注/不存在/自己）无
+      // 写操作，直接继续下一条。
+      if (outcome !== "skip") {
+        await blockQueueSleep(
+          FOLLOW_PUMP_INTERVAL_MS + Math.floor(Math.random() * FOLLOW_PUMP_JITTER_MS),
+        );
+      }
+    }
     }
   } finally {
     followQueuePumping = false;
