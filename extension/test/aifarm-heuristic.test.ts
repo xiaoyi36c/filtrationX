@@ -304,6 +304,22 @@ test("对称互关 + 蓝标但简介干净 → 不命中（防误伤正常互粉
   );
 });
 
+test("超大对称互关（两侧 ≥5000）+ 搞钱简介 → 不依赖蓝标也命中", () => {
+  const r = matchAifarmHeuristic(
+    sig({
+      handle: "ImYanBoss",
+      accountAgeDays: 400,
+      statusesCount: 3000,
+      followersCount: 8679,
+      followingCount: 8061,
+      isVerified: undefined,
+      bio: "分享生活 | 程序员 | 副业探索 ing | 股票研究 ing\n根据 Mi 姐秘籍做了个网站：miyanbo.im\n持续探索一切可能 ✨",
+      recentTweets: [],
+    }),
+  );
+  assert.ok(r, "5k+ symmetric network with money bio must hit even without the verified flag");
+});
+
 test("小号互粉（不足 800）不判互关农场", () => {
   assert.equal(
     matchAifarmHeuristic(

@@ -134,14 +134,30 @@ export function matchAifarmHeuristic(sig: Signals): string[] | null {
     // 蓝标 + 搞钱副业简介（2026-10-26 @ImYanBoss 样本：8k/8.7k 对称互关 +
     // 蓝标 + 「副业探索 | 股票研究 | 根据 Mi 姐秘籍做了个网站」——不写回关
     // 话术的变种）。单看对称互关或蓝标都会误伤大量正常用户，三个维度
-    // 相乘才判。
-    if (sig.isVerified) {
+    // 相乘才判。蓝标字段在部分页面的 fiber 形状下可能取不到，因此超大
+    // 对称网络（两侧 ≥5000）不依赖蓝标——那个规模的对称互关本身就是农场
+    // 形状，正常用户极少经营 5k+ 的 1:1 关注网。
+    if (sig.isVerified || (fw >= 5000 && fg >= 5000)) {
       const money = MONEY_MARKERS.find((m) => texts.some((t) => t.includes(m)));
       if (money) {
         return [
-          `本地启发式 · AI 币圈蓝标：互关结构（粉丝 ${fw}/关注 ${fg}）+ 蓝标 + 搞钱副业简介「${money}」`,
+          `本地启发式 · AI 币圈蓝标：互关结构（粉丝 ${fw}/关注 ${fg}）${sig.isVerified ? " + 蓝标" : ""} + 搞钱副业简介「${money}」`,
         ];
       }
+      // 诊断：互关结构成立但三变体都差一条腿时打到控制台，便于用户回报
+      // 校准（只在 profile 页头打，频率低）。
+      console.debug(
+        "[MXGA] aifarm near-miss",
+        sig.handle,
+        JSON.stringify({
+          followers: fw,
+          following: fg,
+          verified: sig.isVerified ?? false,
+          age: sig.accountAgeDays,
+          posts24h: sig.recentPosts24h,
+          bio: (sig.bio ?? "").slice(0, 80),
+        }),
+      );
     }
   }
 
