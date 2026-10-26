@@ -482,3 +482,39 @@ export async function getFollowQueue(): Promise<FollowQueueState> {
 export async function saveFollowQueue(s: FollowQueueState): Promise<void> {
   await chrome.storage.local.set({ [FOLLOW_QUEUE_KEY]: s });
 }
+
+// ---- 已关注记录（本机） ----
+// 队列里每个关注成功的 handle 都记下来：UI 据此画「已关注占比」圆环、给
+// 榜单行打 ✓ 已关注标记，并让新一轮队列自动跳过已关注的博主。注意这是
+// 「通过本扩展关注过」的本机记录——在 X 端手动取关后这里不会回退，重新
+// 关注会因 X 返回 403 而跳过，不影响使用。
+
+export const FOLLOWED_KEY = "xss:flj:followed:v1";
+const FOLLOWED_MAX = 20_000;
+
+export async function getFollowedSet(): Promise<Set<string>> {
+  try {
+    const got = await chrome.storage.local.get(FOLLOWED_KEY);
+    const v = got[FOLLOWED_KEY];
+    return new Set(Array.isArray(v) ? (v as unknown[]).filter((x): x is string => typeof x === "string") : []);
+  } catch {
+    return new Set();
+  }
+}
+
+export async function addFollowed(handles: string[]): Promise<void> {
+  const set = await getFollowedSet();
+  let changed = false;
+  for (const h of handles) {
+    const k = h.trim().toLowerCase();
+    if (k && !set.has(k)) {
+      set.add(k);
+      changed = true;
+    }
+  }
+  if (!changed) return;
+  // 超上限时丢最旧的（Set 保持插入序）。
+  const arr = [...set];
+  const trimmed = arr.length > FOLLOWED_MAX ? arr.slice(arr.length - FOLLOWED_MAX) : arr;
+  await chrome.storage.local.set({ [FOLLOWED_KEY]: trimmed });
+}

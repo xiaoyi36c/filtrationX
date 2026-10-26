@@ -211,11 +211,12 @@ async function pumpFollowQueue(): Promise<void> {
       ] as { tabId?: number | null } | undefined;
       type FollowExecResult = { ok?: boolean; retryable?: boolean; skipped?: boolean; status?: number };
       let res: FollowExecResult | null = null;
+      const item = q.items[q.cursor]!;
       if (worker?.tabId) {
         try {
           res = (await chrome.tabs.sendMessage(worker.tabId, {
             type: "follow_queue_exec",
-            item: q.items[q.cursor],
+            item,
           })) as FollowExecResult;
         } catch {
           res = null;
@@ -233,6 +234,15 @@ async function pumpFollowQueue(): Promise<void> {
         q.done++;
         q.lastError = null;
         failStreak = 0;
+        // 成功关注 → 记入本机已关注名单（UI 圆环/标记/去重用）。
+        if (res.ok && item?.h) {
+          try {
+            const { addFollowed } = await import("../lib/flj-sync");
+            await addFollowed([item.h]);
+          } catch {
+            // 记录失败不影响队列
+          }
+        }
       } else {
         q.failed++;
         q.lastError = res.status ? `X 返回 ${res.status}（可能已关注）` : "关注未执行";
@@ -618,25 +628,42 @@ export default defineBackground(() => {
               })();
             }
           } else if (msg.type === "flj_status") {
-            const { getFljData } = await import("../lib/flj-sync");
+            const { getFljData, getFollowedSet } = await import("../lib/flj-sync");
             sendResponse({
               ok: true,
-              data: { flj: await getFljData(), syncing: fljSyncRunning, progress: fljProgress },
+              data: {
+                flj: await getFljData(),
+                syncing: fljSyncRunning,
+                progress: fljProgress,
+                followed: [...(await getFollowedSet())],
+              },
             });
           } else if (msg.type === "follow_queue_start") {
-            const { getFljData, buildFollowQueue, getFollowQueue, saveFollowQueue } = await import(
-              "../lib/flj-sync"
-            );
+            const {
+              getFljData,
+              buildFollowQueue,
+              getFollowQueue,
+              saveFollowQueue,
+              getFollowedSet,
+            } = await import("../lib/flj-sync");
             const data = await getFljData();
             if (!data.bloggers.length) {
-              sendResponse({ ok: false, error: "先同步福利鉴榜单" });
+              sendResponse({ ok: false, error: "先同步榜单数据" });
             } else {
-              const items = buildFollowQueue(data.bloggers, {
+              // 已关注过的直接排除，不占本轮名额。
+              const followed = await getFollowedSet();
+              const candidates = data.bloggers.filter((b) => !followed.has(b.h));
+              const items = buildFollowQueue(candidates, {
                 skipNegative: msg.skipNegative !== false,
                 max: msg.max ?? 50,
               });
               if (!items.length) {
-                sendResponse({ ok: false, error: "筛选后没有可关注的博主" });
+                sendResponse({
+                  ok: false,
+                  error: followed.size
+                    ? "筛选后的博主都已关注过"
+                    : "筛选后没有可关注的博主",
+                });
               } else {
                 const q = await getFollowQueue();
                 q.items = items.map((b) => ({ h: b.h, ...(b.n ? { n: b.n } : {}) }));

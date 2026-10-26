@@ -3846,6 +3846,7 @@ function FljPage() {
   const [data, setData] = useState<FljData | null>(null);
   const [syncing, setSyncing] = useState(false);
   const [prog, setProg] = useState<FljSyncProgress | null>(null);
+  const [followed, setFollowed] = useState<Set<string>>(new Set());
   const [q, setQ] = useState<FollowQueueState | null>(null);
   const [search, setSearch] = useState("");
   const [cat, setCat] = useState("all");
@@ -3862,10 +3863,16 @@ function FljPage() {
     const tick = async () => {
       const s = await bg({ type: "flj_status" });
       if (alive && s?.ok) {
-        const d = s.data as { flj: FljData; syncing: boolean; progress: FljSyncProgress | null };
+        const d = s.data as {
+          flj: FljData;
+          syncing: boolean;
+          progress: FljSyncProgress | null;
+          followed: string[];
+        };
         setData(d.flj);
         setSyncing(d.syncing);
         setProg(d.progress);
+        if (Array.isArray(d.followed)) setFollowed(new Set(d.followed));
       }
       const fq = await bg({ type: "follow_queue_status" });
       if (alive && fq?.ok) setQ(fq.data as unknown as FollowQueueState);
@@ -3925,6 +3932,12 @@ function FljPage() {
   };
 
   const pending = Math.max(0, (q?.items.length ?? 0) - (q?.cursor ?? 0));
+  // 已关注可视化：圆环统计「榜单内已通过本扩展关注过」的占比。
+  const followedCount = bloggers.filter((b) => followed.has(b.h)).length;
+  const followableRows = rows.filter((b) => !followed.has(b.h)).length;
+  const ringPct = bloggers.length ? Math.round((followedCount / bloggers.length) * 100) : 0;
+  const R = 22;
+  const CIRC = 2 * Math.PI * R;
   const syncPct = prog
     ? prog.phase === "overview"
       ? 12
@@ -3941,12 +3954,11 @@ function FljPage() {
       <section className="mb-4 rounded-lg border border-border p-5">
         <div className="mb-1 flex items-center justify-between gap-3">
           <h3 className="text-[13px] font-semibold text-fg">榜单同步 · 获取数据</h3>
-          <span className="text-[11px] uppercase tracking-[0.12em] text-fg-3">flj.info</span>
+          <span className="text-[11px] uppercase tracking-[0.12em] text-fg-3">公开榜单</span>
         </div>
         <p className="mb-3 text-[12px] leading-relaxed text-fg-3">
-          拉取 flj.info 的 6 个分类榜单（最新爆料 / 最新检索 / 评分最高 / 风俗 / 门槛 / AV
-          女优），外加两个数据源（Archive 榜、NSFW.pet），合并去重后仅存本机。这一步只读公开网页数据，不会访问你的
-          X 账号。
+          从 3 个公开数据源拉取 NSFW/成人博主名单——福利鉴 6 个分类（最新爆料 / 最新检索 / 评分最高 / 风俗 / 门槛 /
+          AV女优）、Archive 榜、NSFW.pet——合并去重后仅存本机。只读公开数据，不访问你的 X 账号。
         </p>
         <div className="flex flex-wrap items-center gap-3">
           <Btn tier="primary" onClick={() => void sync()} disabled={syncing}>
@@ -3981,7 +3993,33 @@ function FljPage() {
       <section className="mb-8 rounded-lg border border-border p-5">
         <div className="mb-1 flex items-center justify-between gap-3">
           <h3 className="text-[13px] font-semibold text-fg">一键关注 · 执行动作</h3>
-          <span className="text-[11px] uppercase tracking-[0.12em] text-fg-3">x.com</span>
+          <div className="flex items-center gap-3">
+            {/* 已关注占比圆环：榜单内已通过本扩展关注过的博主 / 榜单总数 */}
+            <div className="flex items-center gap-2">
+              <svg width="44" height="44" viewBox="0 0 56 56" className="-rotate-90">
+                <circle cx="28" cy="28" r={R} fill="none" strokeWidth="5" className="stroke-border-2" />
+                <circle
+                  cx="28"
+                  cy="28"
+                  r={R}
+                  fill="none"
+                  strokeWidth="5"
+                  strokeLinecap="round"
+                  className="stroke-accent transition-all duration-500"
+                  strokeDasharray={CIRC}
+                  strokeDashoffset={CIRC * (1 - ringPct / 100)}
+                />
+              </svg>
+              <div className="text-[11px] leading-tight text-fg-3">
+                <div className="font-mono text-[15px] font-semibold leading-tight text-fg">
+                  {followedCount.toLocaleString("zh-CN")}
+                  <span className="text-fg-3">/{bloggers.length.toLocaleString("zh-CN")}</span>
+                </div>
+                <div>已关注 · {ringPct}%</div>
+              </div>
+            </div>
+            <span className="text-[11px] uppercase tracking-[0.12em] text-fg-3">x.com</span>
+          </div>
         </div>
         <p className="mb-3 text-[12px] leading-relaxed text-fg-3">
           按下方筛选把博主加入关注队列，用你自己的 X 登录态逐个关注（约 2-3 秒/个，可随时停止）。{" "}
@@ -4055,8 +4093,8 @@ function FljPage() {
                   {t("flj.stop")}
                 </Btn>
               ) : (
-                <Btn tier="primary" onClick={() => setConfirmOpen(true)} disabled={!rows.length}>
-                  {t("flj.follow")}（当前筛选 {rows.length.toLocaleString("zh-CN")} 人）
+                <Btn tier="primary" onClick={() => setConfirmOpen(true)} disabled={!followableRows}>
+                  {t("flj.follow")}（待关注 {followableRows.toLocaleString("zh-CN")} 人）
                 </Btn>
               )}
             </div>
@@ -4089,7 +4127,7 @@ function FljPage() {
               </thead>
               <tbody>
                 {shown.map((b) => (
-                  <tr key={b.h} className={trHover}>
+                  <tr key={b.h} className={`${trHover} ${followed.has(b.h) ? "opacity-60" : ""}`}>
                     <td className={td}>
                       <div className="flex items-center gap-2.5">
                         <AvatarLink handle={b.h} url={b.avatar} name={b.n || b.h} />
@@ -4116,6 +4154,9 @@ function FljPage() {
                     </td>
                     <td className={td}>
                       <div className="flex flex-wrap gap-1 text-[11px]">
+                        {followed.has(b.h) && (
+                          <span className="rounded bg-ok/15 px-1.5 py-0.5 text-ok">✓ 已关注</span>
+                        )}
                         {b.welfare && (
                           <span className="rounded bg-ok/15 px-1.5 py-0.5 text-ok">福利</span>
                         )}
@@ -4178,7 +4219,8 @@ function FljPage() {
         body={
           <>
             <p>
-              将按当前筛选关注最多 <b>{batch}</b> 位博主（{skipNegative ? "已排除负面标签" : "未排除负面标签"}）。
+              将按当前筛选关注最多 <b>{Math.min(batch, followableRows).toLocaleString("zh-CN")}</b>{" "}
+              位新博主（已排除负面标签{skipNegative ? "" : "未"}、已关注过的自动跳过）。
             </p>
             <p className="mt-2 text-fg-3">
               节奏约 2-3 秒/个，走你自己的 X 登录态；执行期间请保持一个打开的 x.com
