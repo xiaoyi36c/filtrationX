@@ -368,12 +368,18 @@ export default defineContentScript({
       });
     }
     const hitPublicSeen = new Set<string>(); // hitPublic stat: once per account
-    // 启发式命中备忘（会话级，handle/userId → { reasons, category }）。
-    // 启发式在主页头拿到的是整面推文墙的信号（问候模板占比 / 互关结构 /
-    // 促销密度 / 24h 爆发）；单条推文的 sig 没有这些上下文，会各自走缓存/
-    // 在线 AI 被标成绿色「已检」，与账号头部的红色垃圾标自相矛盾
-    // （2026-10-26 实测）。命中即记档，同账号后续任何表面直接复用判定。
-    const heuristicMemo = new Map<string, { reasons: string[]; category: SpamCategory }>();
+    // 垃圾判定备忘（会话级，handle/userId → { verdict, category }）。
+    // 规则：本会话内任何表面（主页头 / 时间线推文 / 回复区）一旦判为垃圾
+    // ——不管来自公共名单、关键词规则、本地启发式还是在线 AI——同账号的
+    // 所有其他位置立即复用该判定，绿色「已检」幽灵标不许再出现
+    // （2026-10-26 用户要求：任意位置判假，处处标假）。
+    const isSpammy = (v: Verdict) => ["spam", "porn_bot", "likely_spam"].includes(v.label);
+    const spamMemo = new Map<string, { verdict: Verdict; category: SpamCategory }>();
+    function rememberSpam(sig: Signals, verdict: Verdict, category: SpamCategory): void {
+      const entry = { verdict, category };
+      spamMemo.set(sig.handle.toLowerCase(), entry);
+      if (sig.userId) spamMemo.set(sig.userId, entry);
+    }
     const onlineClassificationLimiter = new OnlineClassificationLimiter();
     let autoClassificationsStarted = 0;
     let revalidationsStarted = 0;
@@ -1251,6 +1257,7 @@ export default defineContentScript({
       }
       badgeFor(anchor, key, sig, c.verdict, undefined, "cache");
       pushFinding(sig, c.verdict, "cache");
+      if (isSpammy(c.verdict)) rememberSpam(sig, c.verdict, c.verdict.category ?? "other");
     }
 
     async function renderOnlineDetection(
@@ -1291,37 +1298,8 @@ export default defineContentScript({
         "fresh",
       );
       pushFinding(sig, result.verdict, "online-ai");
-    }
-
-    /** 本地启发式命中（aifarm / 营销引流，或会话备忘复用）→ 与规则命中
-     *  同一条渲染链路：分类策略（默认仅标记）与回复区门槛照常生效。 */
-    function renderHeuristicHit(
-      anchor: HTMLElement,
-      key: string,
-      sig: Signals,
-      hit: { reasons: string[]; category: SpamCategory },
-      ctx: ScanContext,
-    ): void {
-      renderLocalIndex(
-        anchor,
-        key,
-        sig,
-        {
-          userId: sig.userId ?? "",
-          handle: sig.handle,
-          verdict: {
-            label: "spam",
-            confidence: 0.9,
-            reasons: hit.reasons,
-          },
-          category: hit.category,
-          tier: "auto",
-          source: "community",
-          updatedAt: new Date().toISOString(),
-        },
-        "rule",
-        ctx,
-      );
+      if (isSpammy(result.verdict))
+        rememberSpam(sig, result.verdict, result.verdict.category ?? "other");
     }
 
     function renderLocalIndex(
@@ -1332,6 +1310,8 @@ export default defineContentScript({
       badgeSource: BadgeSource = "list",
       ctx: ScanContext = "feed",
     ) {
+      // 名单 / 规则 / 启发式命中 → 记入会话垃圾备忘（处处标假）。
+      if (isSpammy(entry.verdict)) rememberSpam(sig, entry.verdict, entry.category);
       if (!hitPublicSeen.has(key)) {
         hitPublicSeen.add(key);
         void bumpStat("hitPublic");
@@ -1473,23 +1453,41 @@ export default defineContentScript({
           return;
         }
 
-        // 3.5 Built-in aifarm heuristic (「AI 币圈蓝标」): young account +
-        //     inhuman posting volume + engagement-farming bio phrases, or a
-        //     greeting-template flood (agent auto-replier), or a follow-back
-        //     farm. Ranked ABOVE the cache, same as the local index: a cached
-        //     legit/uncertain verdict from an earlier (pre-heuristic) visit
-        //     must not mask a behavior fingerprint that is visible right now.
-        //     A hit is memoized for the session (see aifarmMemo): single
-        //     tweets of the same account lack the profile-wall context, so
-        //     without the memo they'd race off to cache/online AI and come
-        //     back as green 已检 ghosts under a red header badge.
-        const memoHit =
-          heuristicMemo.get(sig.handle.toLowerCase()) ??
-          (sig.userId ? heuristicMemo.get(sig.userId) : undefined);
-        if (memoHit) {
-          renderHeuristicHit(anchor, key, sig, memoHit, ctx);
+        // 2.5 会话垃圾备忘：任何表面判过垃圾（名单/规则/启发式/缓存/在线
+        //     AI），同账号所有其他位置直接复用红标，绿标「已检」不再出现。
+        const memoSpam =
+          spamMemo.get(sig.handle.toLowerCase()) ??
+          (sig.userId ? spamMemo.get(sig.userId) : undefined);
+        if (memoSpam) {
+          renderLocalIndex(
+            anchor,
+            key,
+            sig,
+            {
+              userId: sig.userId ?? "",
+              handle: sig.handle,
+              verdict: memoSpam.verdict,
+              category: memoSpam.category,
+              tier: "auto",
+              source: "community",
+              updatedAt: new Date().toISOString(),
+            },
+            "rule",
+            ctx,
+          );
           return;
         }
+
+        // 3.5 Built-in heuristics (「AI 币圈蓝标」+ 营销引流): young account +
+        //     inhuman posting volume + engagement-farming bio phrases, or a
+        //     greeting-template flood (agent auto-replier), or a follow-back
+        //     farm, or a promo wall. Ranked ABOVE the cache, same as the
+        //     local index: a cached legit/uncertain verdict from an earlier
+        //     (pre-heuristic) visit must not mask a behavior fingerprint that
+        //     is visible right now. Hits are memoized (see spamMemo) so
+        //     single tweets of the same account — which lack the profile-wall
+        //     context — reuse the verdict instead of racing off to cache or
+        //     online AI and coming back as green 已检 ghosts.
         const hitArt0 = articleOf(anchor);
         sig.templateRepeats = await noteTemplate(
           sig,
@@ -1499,14 +1497,41 @@ export default defineContentScript({
         const aifarm = matchAifarmHeuristic(sig);
         const promo = aifarm ? null : matchPromoFlood(sig);
         const hit = aifarm
-          ? { reasons: aifarm, category: "aifarm" as const }
+          ? {
+              verdict: {
+                label: "spam",
+                confidence: 0.9,
+                reasons: aifarm,
+              } as Verdict,
+              category: "aifarm" as const,
+            }
           : promo
-            ? { reasons: promo, category: "marketing" as const }
+            ? {
+                verdict: {
+                  label: "spam",
+                  confidence: 0.9,
+                  reasons: promo,
+                } as Verdict,
+                category: "marketing" as const,
+              }
             : null;
         if (hit) {
-          heuristicMemo.set(sig.handle.toLowerCase(), hit);
-          if (sig.userId) heuristicMemo.set(sig.userId, hit);
-          renderHeuristicHit(anchor, key, sig, hit, ctx);
+          renderLocalIndex(
+            anchor,
+            key,
+            sig,
+            {
+              userId: sig.userId ?? "",
+              handle: sig.handle,
+              verdict: hit.verdict,
+              category: hit.category,
+              tier: "auto",
+              source: "community",
+              updatedAt: new Date().toISOString(),
+            },
+            "rule",
+            ctx,
+          );
           return;
         }
 

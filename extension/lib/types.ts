@@ -7,6 +7,9 @@ export interface Verdict {
   label: Label;
   confidence: number;
   reasons: string[];
+  /** Spam category from the edge classifier (optional: legacy cached
+   *  verdicts predate the field). Local heuristics stamp it at render time. */
+  category?: SpamCategory;
 }
 
 export interface CurationRecord {
