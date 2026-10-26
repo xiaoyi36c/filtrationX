@@ -30,8 +30,8 @@ export default defineConfig({
     // Pinned explicitly — WXT's package.json fallback produced a stale
     // 0.2.0 no matter what the extension/package.json said, which made
     // "which build am I running?" undecidable for the user (2026-10-25).
-    version: "0.2.2",
-    version_name: "0.2.2",
+    version: "0.2.1",
+    version_name: "0.2.1",
     description:
       "本地优先的 X 垃圾号过滤：公开黑名单 / 自定义词库同步个人仓库 / 限速一键拉黑 / KOL 可信信号。Local-first, open source.",
     // alarms: periodic list refresh; unlimitedStorage: the cached list

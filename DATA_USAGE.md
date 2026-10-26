@@ -31,6 +31,22 @@ evidence, and mirror commits remain available as the audit trail. Current API,
 R2, and `data-mirror` artifacts represent the cleaned list. New AI verdicts
 remain review-only and cannot publish directly.
 
+## filtrationX fork additions (2026-10)
+
+The filtrationX fork adds two optional features whose data flows are separate
+from the blocklist above:
+
+- **NSFW & adult rankings page**: the extension fetches three *public* ranking
+  JSON endpoints (`flj.info/api/rankings*`, `img.boomboom.nyc.mn/data/archive.json`,
+  `www.nsfw.pet/api/creators`) from the background worker at the user's explicit
+  "sync" click, stores the merged blogger list in local `chrome.storage` only,
+  and sends nothing anywhere. No ranking data is published to this repository
+  or to the edge service.
+- **One-click follow**: the follow queue reuses the user's own logged-in X
+  session (same mechanism as the block queue) at ~2-3 s per account; it only
+  runs after an explicit user click, and successfully followed handles are
+  recorded locally to skip duplicates.
+
 ## Where the data lives
 
 | Source | Path / endpoint | Freshness |
