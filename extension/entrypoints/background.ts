@@ -195,6 +195,9 @@ const FOLLOW_MAX_FAIL_STREAK = 5;
 const FOLLOW_MAX_DEAD_STREAK = 20;
 // 关注日志上限（最新在前裁剪）。
 const FOLLOW_LOG_MAX = 60;
+// 单个目标的执行器调用超时：正常节奏下（泵先等完限流冷却）执行应在几秒内
+// 返回；超时说明 x.com 标签页挂起/已死，停队列比永远挂起诚实。
+const FOLLOW_EXEC_TIMEOUT_MS = 120_000;
 
 type FollowLogItem = { t: number; h?: string; n?: string; ok: boolean; note: string };
 
@@ -242,12 +245,26 @@ async function pumpFollowQueue(): Promise<void> {
       };
       let res: FollowExecResult | null = null;
       const item = q.items[q.cursor]!;
+      // 执行器调用必须有超时：x.com 标签页挂起（或标签页内冷却异常拉长）
+      // 时 sendMessage 会永远挂起，泵一挂日志就停在「队列开始」。
+      let execTimedOut = false;
       if (worker?.tabId) {
         try {
-          res = (await chrome.tabs.sendMessage(worker.tabId, {
-            type: "follow_queue_exec",
-            item,
-          })) as FollowExecResult;
+          let settled = false;
+          res = (await Promise.race([
+            chrome.tabs.sendMessage(worker.tabId, { type: "follow_queue_exec", item }).then((r) => {
+              settled = true;
+              return r as FollowExecResult;
+            }),
+            new Promise<null>((resolve) =>
+              setTimeout(() => {
+                if (!settled) {
+                  execTimedOut = true;
+                  resolve(null);
+                }
+              }, FOLLOW_EXEC_TIMEOUT_MS),
+            ),
+          ])) as FollowExecResult | null;
         } catch {
           res = null;
         }
@@ -255,7 +272,11 @@ async function pumpFollowQueue(): Promise<void> {
       if (!res) {
         q.running = false;
         q.finishedAt = Date.now();
-        q.lastError = "需要打开一个 x.com 标签页来执行关注——打开后重新点「开始关注」会从断点继续";
+        q.lastError = execTimedOut
+          ? "执行器无响应（x.com 标签页挂起或标签页内冷却过长）——已暂停，重新点「开始关注」从断点继续"
+          : "需要打开一个 x.com 标签页来执行关注——打开后重新点「开始关注」会从断点继续";
+        // 停队列的原因必须进日志面板，否则看起来像凭空卡死。
+        pushFollowLog(q, { h: item.h, n: item.n, ok: false, note: q.lastError });
         await saveFollowQueue(q);
         return;
       }
