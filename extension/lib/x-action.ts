@@ -368,10 +368,14 @@ async function gqlUserByScreenName(name: string): Promise<UserLookupResult> {
     if (result.reason === "Suspended") {
       return { status: 200, exists: false, reason: "账号已被 X 封禁（Account suspended）" };
     }
+    // 受保护账号的关注是「待通过」状态（Pending）：此时 following=false 但
+    // follow_request_sent=true——语义上等同已关注（不用再尝试）。
+    const followed =
+      result.legacy?.following === true || result.legacy?.follow_request_sent === true;
     return {
       status: 200,
       exists: true,
-      ...(result.legacy?.following ? { following: true } : {}),
+      ...(followed ? { following: true } : {}),
     };
   } catch {
     return { status: 200, exists: null, reason: "响应解析失败" };
@@ -415,10 +419,14 @@ export async function lookupUser(handle: string): Promise<UserLookupResult> {
         15_000,
       );
       if (res.status === 200) {
-        // 200 响应体里带查看者的关注关系。
+        // 200 响应体里带查看者的关注关系；受保护账号的待通过请求同样算。
         try {
-          const u = JSON.parse(res.text()) as { following?: boolean };
-          return { status: 200, exists: true, ...(u.following ? { following: true } : {}) };
+          const u = JSON.parse(res.text()) as {
+            following?: boolean;
+            pending_follow_request_sent?: boolean;
+          };
+          const followed = u.following === true || u.pending_follow_request_sent === true;
+          return { status: 200, exists: true, ...(followed ? { following: true } : {}) };
         } catch {
           return { status: 200, exists: true };
         }

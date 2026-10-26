@@ -334,10 +334,10 @@ async function pumpFollowQueue(): Promise<void> {
           return;
         } else {
           // 429 有歧义：X 对「不存在的账号」和「已在关注列表的重复关注」都
-          // 常统一返回 429——先用只读查询核实，再决定记失效 / 补记成功 /
-          // 按限流等待（2026-10-27 用户实测两例：误报限流、误报不存在）。
+          // 常统一返回 429；403 则可能是已关注/待通过（Pending）——先用
+          // 只读查询核实，再决定记失效 / 补记成功 / 按限流等待。
           let v: { exists?: boolean | null; following?: boolean; reason?: string } | null = null;
-          if (res.status === 429 && worker?.tabId) {
+          if ((res.status === 429 || res.status === 403) && worker?.tabId) {
             try {
               let settled = false;
               v = (await Promise.race([
