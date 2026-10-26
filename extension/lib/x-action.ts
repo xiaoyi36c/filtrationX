@@ -467,7 +467,11 @@ export async function lookupUser(handle: string): Promise<UserLookupResult> {
 export function classifyActionBody(
   status: number,
   bodyText: string,
-): { kind: "invalid" | "follow-limit" | "other"; invalid: boolean; reason?: string } {
+): {
+  kind: "invalid" | "follow-limit" | "already-followed" | "other";
+  invalid: boolean;
+  reason?: string;
+} {
   let code: number | null = null;
   let message = "";
   try {
@@ -484,6 +488,15 @@ export function classifyActionBody(
       kind: "follow-limit",
       invalid: false,
       reason: "已达到 X 的关注上限（改天再试，或先取关一些账号）",
+    };
+  }
+  // 160 = already requested to follow：受保护账号的关注请求已在待通过列表
+  // （Pending）——等价于关注完成，调用方可按成功处理（仅 follow 有意义）。
+  if (code === 160 || /already requested to follow/i.test(message)) {
+    return {
+      kind: "already-followed",
+      invalid: false,
+      reason: "已请求关注（Pending，等待对方通过）",
     };
   }
   if (code === 63 || code === 50 || code === 108 || status === 404) {
@@ -546,6 +559,11 @@ async function rawAction(
     const status = res.status;
     const ok = status >= 200 && status < 300;
     const cls = classifyActionBody(status, res.text());
+    // 160 = 已请求关注（Pending）——对 follow 等价于成功（请求已在，等对方
+    // 通过）；block/mute 无此语义，保持原判断。
+    if (kind === "follow" && cls.kind === "already-followed") {
+      return { ok: true, status, reason: cls.reason };
+    }
     const retryable =
       cls.kind !== "invalid" &&
       (status === 408 || status === 425 || status === 429 || status >= 500);

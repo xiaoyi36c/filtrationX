@@ -140,6 +140,16 @@ test("classifyActionBody：code 161 = 关注上限，不是失效也不是已关
   assert.match(r.reason ?? "", /上限/);
 });
 
+test("classifyActionBody：code 160 = 已请求关注（Pending）", () => {
+  const body = JSON.stringify({
+    errors: [{ code: 160, message: "You've already requested to follow the specified user." }],
+  });
+  const r = classifyActionBody(403, body);
+  assert.equal(r.invalid, false);
+  assert.equal(r.kind, "already-followed");
+  assert.match(r.reason ?? "", /Pending|请求关注/);
+});
+
 test("classifyActionBody：已关注/限流等其它失败不算失效", () => {
   // 403 无错误码（老语义「可能已关注」）
   assert.equal(classifyActionBody(403, "").invalid, false);
