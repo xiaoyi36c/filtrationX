@@ -166,3 +166,52 @@ export function matchAifarmHeuristic(sig: Signals): string[] | null {
     `本地启发式 · AI 币圈蓝标：注册 ${age} 天发帖 ${posts} 条（日均 ${Math.round(perDay)}）+ 养号话术「${phrase}」`,
   ];
 }
+
+// ---- 营销引流（marketing 分类）：电商优惠券/带货刷屏 ----
+
+/** 带货/优惠券标记词。命中密度（而非单条）定罪：正常用户偶尔提一句
+ *  「淘宝买的」不算，整面推文都是促销才算。 */
+const PROMO_MARKERS = [
+  "优惠券",
+  "领券",
+  "大促",
+  "捡漏",
+  "内部价",
+  "秒杀",
+  "粉丝福利",
+  "带货",
+  "上车",
+  "进裙",
+  "拼多多",
+  "天猫",
+  "京东",
+  "淘宝",
+];
+
+/** 营销引流启发式：
+ *  - 主页通道：近期采样 ≥6 条里 ≥60% 含带货标记——正常卖家偶尔发新品
+ *    达不到这个密度，纯促销墙（11.11 大促刷屏型）直接命中。
+ *  - 回复通道：新号（<90 天）回复带货话术（≥2 个标记，或 1 个标记 +
+ *    链接）——回复区塞优惠券是营销号的标准行为，老号偶发不判。 */
+export function matchPromoFlood(sig: Signals): string[] | null {
+  const raw = sig.recentTweets ?? [];
+  if (raw.length >= 6) {
+    const texts = raw.map(norm);
+    const promo = texts.filter((t) => PROMO_MARKERS.some((m) => t.includes(m))).length;
+    if (promo / raw.length >= 0.6) {
+      return [`本地启发式 · 营销引流：主页近期采样 ${promo}/${raw.length} 条为带货/优惠券内容`];
+    }
+  }
+  const comment = norm(sig.triggeringComment ?? "");
+  if (comment) {
+    const markers = PROMO_MARKERS.filter((m) => comment.includes(m));
+    const hasLink = /https?:|t\.co|\.(cn|com|net)/.test(comment);
+    const young = typeof sig.accountAgeDays === "number" && sig.accountAgeDays < 90;
+    if (young && (markers.length >= 2 || (markers.length === 1 && hasLink))) {
+      return [
+        `本地启发式 · 营销引流：新号回复带货话术${markers.length ? `「${markers[0]}」` : "（含推广链接）"}`,
+      ];
+    }
+  }
+  return null;
+}

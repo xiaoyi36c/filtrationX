@@ -31,7 +31,7 @@ import { readBridgeUser } from "../lib/x-user-bridge";
 import { LIST_KEY, WL_KEY } from "../lib/list-sync";
 import { type IndexEntry, isWhitelisted, lookupLocal, warmLocalIndex } from "../lib/local-index";
 import { matchLocalRules, warmRuleConfig } from "../lib/local-rules";
-import { matchAifarmHeuristic } from "../lib/aifarm-heuristic";
+import { matchAifarmHeuristic, matchPromoFlood } from "../lib/aifarm-heuristic";
 import {
   LOCAL_WL_KEY,
   addLocalWhitelist,
@@ -368,12 +368,12 @@ export default defineContentScript({
       });
     }
     const hitPublicSeen = new Set<string>(); // hitPublic stat: once per account
-    // aifarm 命中备忘（会话级，handle/userId → reasons）。启发式在主页头
-    // 拿到的是整面推文墙的信号（问候模板占比 / 互关结构 / 24h 爆发）；单条
-    // 推文的 sig 没有这些上下文，会各自走缓存/在线 AI 被标成绿色「已检」，
-    // 与账号头部的红色垃圾标自相矛盾（2026-10-26 实测）。命中即记档，同
-    // 账号后续任何表面直接复用判定。
-    const aifarmMemo = new Map<string, string[]>();
+    // 启发式命中备忘（会话级，handle/userId → { reasons, category }）。
+    // 启发式在主页头拿到的是整面推文墙的信号（问候模板占比 / 互关结构 /
+    // 促销密度 / 24h 爆发）；单条推文的 sig 没有这些上下文，会各自走缓存/
+    // 在线 AI 被标成绿色「已检」，与账号头部的红色垃圾标自相矛盾
+    // （2026-10-26 实测）。命中即记档，同账号后续任何表面直接复用判定。
+    const heuristicMemo = new Map<string, { reasons: string[]; category: SpamCategory }>();
     const onlineClassificationLimiter = new OnlineClassificationLimiter();
     let autoClassificationsStarted = 0;
     let revalidationsStarted = 0;
@@ -1293,12 +1293,13 @@ export default defineContentScript({
       pushFinding(sig, result.verdict, "online-ai");
     }
 
-    /** aifarm 启发式命中（或会话备忘复用）→ 与规则命中同一条渲染链路。 */
-    function renderAifarmHit(
+    /** 本地启发式命中（aifarm / 营销引流，或会话备忘复用）→ 与规则命中
+     *  同一条渲染链路：分类策略（默认仅标记）与回复区门槛照常生效。 */
+    function renderHeuristicHit(
       anchor: HTMLElement,
       key: string,
       sig: Signals,
-      reasons: string[],
+      hit: { reasons: string[]; category: SpamCategory },
       ctx: ScanContext,
     ): void {
       renderLocalIndex(
@@ -1311,9 +1312,9 @@ export default defineContentScript({
           verdict: {
             label: "spam",
             confidence: 0.9,
-            reasons,
+            reasons: hit.reasons,
           },
-          category: "aifarm",
+          category: hit.category,
           tier: "auto",
           source: "community",
           updatedAt: new Date().toISOString(),
@@ -1482,11 +1483,11 @@ export default defineContentScript({
         //     tweets of the same account lack the profile-wall context, so
         //     without the memo they'd race off to cache/online AI and come
         //     back as green 已检 ghosts under a red header badge.
-        const memoAifarm =
-          aifarmMemo.get(sig.handle.toLowerCase()) ??
-          (sig.userId ? aifarmMemo.get(sig.userId) : undefined);
-        if (memoAifarm) {
-          renderAifarmHit(anchor, key, sig, memoAifarm, ctx);
+        const memoHit =
+          heuristicMemo.get(sig.handle.toLowerCase()) ??
+          (sig.userId ? heuristicMemo.get(sig.userId) : undefined);
+        if (memoHit) {
+          renderHeuristicHit(anchor, key, sig, memoHit, ctx);
           return;
         }
         const hitArt0 = articleOf(anchor);
@@ -1496,10 +1497,16 @@ export default defineContentScript({
           hitArt0 ? articleStatusId(hitArt0) : null,
         );
         const aifarm = matchAifarmHeuristic(sig);
-        if (aifarm) {
-          aifarmMemo.set(sig.handle.toLowerCase(), aifarm);
-          if (sig.userId) aifarmMemo.set(sig.userId, aifarm);
-          renderAifarmHit(anchor, key, sig, aifarm, ctx);
+        const promo = aifarm ? null : matchPromoFlood(sig);
+        const hit = aifarm
+          ? { reasons: aifarm, category: "aifarm" as const }
+          : promo
+            ? { reasons: promo, category: "marketing" as const }
+            : null;
+        if (hit) {
+          heuristicMemo.set(sig.handle.toLowerCase(), hit);
+          if (sig.userId) heuristicMemo.set(sig.userId, hit);
+          renderHeuristicHit(anchor, key, sig, hit, ctx);
           return;
         }
 

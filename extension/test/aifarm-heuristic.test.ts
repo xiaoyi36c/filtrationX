@@ -3,7 +3,7 @@
 // 通道 B = 年轻(<30 天) + 日均≥60 + 币圈/web3/炒股类垂直简介。
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { matchAifarmHeuristic } from "../lib/aifarm-heuristic";
+import { matchAifarmHeuristic, matchPromoFlood } from "../lib/aifarm-heuristic";
 import type { Signals } from "../lib/types";
 
 function sig(over: Partial<Signals>): Signals {
@@ -278,6 +278,80 @@ test("小号互粉（不足 800）不判互关农场", () => {
         followersCount: 120,
         followingCount: 130,
         bio: "互关互fo",
+      }),
+    ),
+    null,
+  );
+});
+
+// ---- 营销引流（marketing）：电商优惠券/带货刷屏 ----
+
+test("2026-10-26 电商大促刷屏样本（主页促销墙）→ 命中 marketing", () => {
+  const wall = [
+    "天猫双11大促主会场入口，先领券再下单！",
+    "京东双十一大促，整点秒杀别错过",
+    "淘宝大促红包今晚开领",
+    "拼多多百亿补贴，粉丝福利上车",
+    "双11大促清单整理好了，自取",
+    "领券下单立减，链接在评论区",
+    "今天的穿搭分享",
+  ];
+  const r = matchPromoFlood(
+    sig({ bio: "", accountAgeDays: 200, recentTweets: wall }),
+  );
+  assert.ok(r, "promo wall must hit");
+  assert.match(r?.[0] ?? "", /营销引流/);
+});
+
+test("正常用户偶尔提到淘宝 → 不命中（密度门槛）", () => {
+  const wall = [
+    "今天试了新餐厅",
+    "在淘宝买了个键盘，手感不错",
+    "健身第 30 天打卡",
+    "读完一章《置身事内》",
+    "这部电影值得二刷",
+    "周末爬山",
+  ];
+  assert.equal(
+    matchPromoFlood(sig({ bio: "", accountAgeDays: 200, recentTweets: wall })),
+    null,
+  );
+});
+
+test("新号回复带货话术（2 个标记）→ 命中", () => {
+  const r = matchPromoFlood(
+    sig({
+      bio: "",
+      accountAgeDays: 45,
+      recentTweets: [],
+      triggeringComment: "天猫大促优惠券我这里还有几张，要的私我",
+    }),
+  );
+  assert.ok(r);
+});
+
+test("老号偶发带货回复 → 不命中", () => {
+  assert.equal(
+    matchPromoFlood(
+      sig({
+        bio: "",
+        accountAgeDays: 800,
+        recentTweets: [],
+        triggeringComment: "天猫大促优惠券我这里还有几张，要的私我",
+      }),
+    ),
+    null,
+  );
+});
+
+test("新号单标记无链接 → 不命中", () => {
+  assert.equal(
+    matchPromoFlood(
+      sig({
+        bio: "",
+        accountAgeDays: 30,
+        recentTweets: [],
+        triggeringComment: "这个在淘宝能买到",
       }),
     ),
     null,
