@@ -226,38 +226,23 @@ test("对称大网络但简介干净、无话术 → 不命中（防误伤正常
   );
 });
 
-test("互关结构 + 蓝标 + 24h 可见 10 条 → 命中（话术缺席的多维度叠加）", () => {
+test("24h 爆发直接标记：≥10 条即命中，不看网络/蓝标/年龄（用户规则）", () => {
+  // 非对称网络、未开会员、老号——只要 24h 可见发帖超阈值就标。
   const r = matchFarmHeuristic(
     sig({
       accountAgeDays: 1000,
       statusesCount: 9000,
-      followersCount: 2100,
-      followingCount: 2300,
+      followersCount: 90000,
+      followingCount: 300,
       isVerified: true,
-      bio: "日常记录",
       recentPosts24h: 12,
+      bio: "日常记录",
     }),
   );
-  assert.ok(r);
+  assert.ok(r, "24h burst marks regardless of network shape");
   assert.match(r?.[0] ?? "", /24h/);
-});
-
-test("24h 爆发但非对称网络或未开会员 → 不命中", () => {
-  assert.equal(
-    matchFarmHeuristic(
-      sig({
-        accountAgeDays: 1000,
-        statusesCount: 9000,
-        followersCount: 90000,
-        followingCount: 300,
-        isVerified: true,
-        recentPosts24h: 12,
-        bio: "日常记录",
-      }),
-    ),
-    null,
-  );
-  assert.equal(
+  // 无蓝标、非对称同样命中
+  assert.ok(
     matchFarmHeuristic(
       sig({
         accountAgeDays: 1000,
@@ -268,6 +253,26 @@ test("24h 爆发但非对称网络或未开会员 → 不命中", () => {
         bio: "日常记录",
       }),
     ),
+  );
+});
+
+test("24h 可见发帖低于阈值 → 不命中（阈值边界）", () => {
+  assert.equal(
+    matchFarmHeuristic(
+      sig({
+        accountAgeDays: 1000,
+        statusesCount: 9000,
+        followersCount: 90000,
+        followingCount: 300,
+        isVerified: true,
+        recentPosts24h: 9,
+        bio: "日常记录",
+      }),
+    ),
+    null,
+  );
+  assert.equal(
+    matchFarmHeuristic(sig({ accountAgeDays: 400, statusesCount: 3000, recentPosts24h: undefined })),
     null,
   );
 });

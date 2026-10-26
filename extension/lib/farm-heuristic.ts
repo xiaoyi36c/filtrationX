@@ -118,7 +118,21 @@ function greetingFlood(recentTweets: string[] | undefined): string | null {
   return null;
 }
 
+/** 24h 爆发直接标记阈值：主页可见帖子里 ≥10 条发布于 24 小时内（X 虚拟
+ *  列表只渲染 10-20 行，10 条意味着整页都是今天发的）。用户规则（2026-10-26）：
+ *  超量即标，不问画像——正常用户几乎不会让整页推文都停留在同一天；
+ *  实况/连载数量也到不了整页级别。阈值是常量，误伤时在这里调。 */
+const POSTS_24H_MARK = 10;
+
 export function matchFarmHeuristic(sig: Signals): string[] | null {
+  // 通道 E：24h 爆发直接标记（用户规则：超量即标，不问画像、不限年龄，
+  // 排在最前——这是所有通道里最便宜且最直白的一条）。
+  if ((sig.recentPosts24h ?? 0) >= POSTS_24H_MARK) {
+    return [
+      `本地启发式 · 高频刷屏：主页可见 ${sig.recentPosts24h} 条推文发布于 24h 内（阈值 ${POSTS_24H_MARK}）`,
+    ];
+  }
+
   // 通道 D：互关农场（不限年龄）。对称大网络（粉丝与关注都过 800、比值
   // 0.5-2，互关团的典型形状）+ 养号证据。单看对称结构会误伤正常的互粉
   // 用户，单看话术会被老号年龄门槛挡住——两者相乘才是「饺子每天都巡逻
@@ -140,13 +154,6 @@ export function matchFarmHeuristic(sig: Signals): string[] | null {
     if (phrase) {
       return [
         `本地启发式 · 互关农场：互关结构（粉丝 ${fw}/关注 ${fg}）+ 养号话术「${phrase}」`,
-      ];
-    }
-    // 蓝标会员 + 24h 内主页可见 ≥10 条（X 虚拟列表只渲染 10-20 行，10 条
-    // 意味着整页都是今天发的）——多维度叠加时话术可以缺席。
-    if (sig.isVerified && (sig.recentPosts24h ?? 0) >= 10) {
-      return [
-        `本地启发式 · 互关农场：互关结构（粉丝 ${fw}/关注 ${fg}）+ 蓝标 + 24h 可见发帖 ${sig.recentPosts24h} 条`,
       ];
     }
     // 蓝标 + 搞钱副业简介（2026-10-26 @ImYanBoss 样本：8k/8.7k 对称互关 +
