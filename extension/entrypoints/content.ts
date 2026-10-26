@@ -368,6 +368,12 @@ export default defineContentScript({
       });
     }
     const hitPublicSeen = new Set<string>(); // hitPublic stat: once per account
+    // aifarm 命中备忘（会话级，handle/userId → reasons）。启发式在主页头
+    // 拿到的是整面推文墙的信号（问候模板占比 / 互关结构 / 24h 爆发）；单条
+    // 推文的 sig 没有这些上下文，会各自走缓存/在线 AI 被标成绿色「已检」，
+    // 与账号头部的红色垃圾标自相矛盾（2026-10-26 实测）。命中即记档，同
+    // 账号后续任何表面直接复用判定。
+    const aifarmMemo = new Map<string, string[]>();
     const onlineClassificationLimiter = new OnlineClassificationLimiter();
     let autoClassificationsStarted = 0;
     let revalidationsStarted = 0;
@@ -1287,6 +1293,36 @@ export default defineContentScript({
       pushFinding(sig, result.verdict, "online-ai");
     }
 
+    /** aifarm 启发式命中（或会话备忘复用）→ 与规则命中同一条渲染链路。 */
+    function renderAifarmHit(
+      anchor: HTMLElement,
+      key: string,
+      sig: Signals,
+      reasons: string[],
+      ctx: ScanContext,
+    ): void {
+      renderLocalIndex(
+        anchor,
+        key,
+        sig,
+        {
+          userId: sig.userId ?? "",
+          handle: sig.handle,
+          verdict: {
+            label: "spam",
+            confidence: 0.9,
+            reasons,
+          },
+          category: "aifarm",
+          tier: "auto",
+          source: "community",
+          updatedAt: new Date().toISOString(),
+        },
+        "rule",
+        ctx,
+      );
+    }
+
     function renderLocalIndex(
       anchor: HTMLElement,
       key: string,
@@ -1438,14 +1474,21 @@ export default defineContentScript({
 
         // 3.5 Built-in aifarm heuristic (「AI 币圈蓝标」): young account +
         //     inhuman posting volume + engagement-farming bio phrases, or a
-        //     greeting-template flood (agent auto-replier). Ranked ABOVE the
-        //     cache, same as the local index: a cached legit/uncertain verdict
-        //     from an earlier (pre-heuristic) visit must not mask a behavior
-        //     fingerprint that is visible right now — the wall-of-greetings
-        //     account kept its cached "legit" forever because its signals
-        //     never change (2026-10-26 实测漏判根因). The template-memory
-        //     count feeds the reply-surface lane; recording here (instead of
-        //     only on the online path) is idempotent per tweet id.
+        //     greeting-template flood (agent auto-replier), or a follow-back
+        //     farm. Ranked ABOVE the cache, same as the local index: a cached
+        //     legit/uncertain verdict from an earlier (pre-heuristic) visit
+        //     must not mask a behavior fingerprint that is visible right now.
+        //     A hit is memoized for the session (see aifarmMemo): single
+        //     tweets of the same account lack the profile-wall context, so
+        //     without the memo they'd race off to cache/online AI and come
+        //     back as green 已检 ghosts under a red header badge.
+        const memoAifarm =
+          aifarmMemo.get(sig.handle.toLowerCase()) ??
+          (sig.userId ? aifarmMemo.get(sig.userId) : undefined);
+        if (memoAifarm) {
+          renderAifarmHit(anchor, key, sig, memoAifarm, ctx);
+          return;
+        }
         const hitArt0 = articleOf(anchor);
         sig.templateRepeats = await noteTemplate(
           sig,
@@ -1454,26 +1497,9 @@ export default defineContentScript({
         );
         const aifarm = matchAifarmHeuristic(sig);
         if (aifarm) {
-          renderLocalIndex(
-            anchor,
-            key,
-            sig,
-            {
-              userId: sig.userId ?? "",
-              handle: sig.handle,
-              verdict: {
-                label: "spam",
-                confidence: 0.9,
-                reasons: aifarm,
-              },
-              category: "aifarm",
-              tier: "auto",
-              source: "community",
-              updatedAt: new Date().toISOString(),
-            },
-            "rule",
-            ctx,
-          );
+          aifarmMemo.set(sig.handle.toLowerCase(), aifarm);
+          if (sig.userId) aifarmMemo.set(sig.userId, aifarm);
+          renderAifarmHit(anchor, key, sig, aifarm, ctx);
           return;
         }
 
