@@ -135,7 +135,7 @@ export type BgRequest =
   // 福利鉴博主同步 + 一键关注 (二开, lib/flj-sync.ts)：榜单从 flj.info 拉
   // （公开 JSON，无需登录，仅存本机）；关注队列与一键拉黑同一套基建，
   // 用户显式点「开始关注」才跑。
-  | { type: "flj_sync_start" }
+  | { type: "flj_sync_start"; sources?: import("./flj-sync").FljSyncSelection }
   | { type: "flj_status" }
   | { type: "follow_queue_start"; max: number; skipNegative?: boolean }
   | { type: "follow_queue_stop" }

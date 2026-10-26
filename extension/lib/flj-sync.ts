@@ -200,35 +200,44 @@ export async function saveFljData(d: FljData): Promise<void> {
   await chrome.storage.local.set({ [FLJ_KEY]: d });
 }
 
+/** 两批名单合并：按 handle 去重、字段取并集/最高分，按评分降序输出。纯函数。 */
+export function mergeWithExisting(prev: FljBlogger[], cur: FljBlogger[]): FljBlogger[] {
+  const byH = new Map<string, FljBlogger>();
+  for (const b of [...prev, ...cur]) {
+    const x = byH.get(b.h);
+    if (x) {
+      if (!x.n && b.n) x.n = b.n;
+      if ((b.score ?? -1) > (x.score ?? -1)) x.score = b.score;
+      if (b.welfare) x.welfare = true;
+      if (b.fushi) x.fushi = true;
+      if (b.threshold) x.threshold = true;
+      if (b.verifiedReal) x.verifiedReal = true;
+      if (b.dead) x.dead = true;
+      if ((b.followers ?? 0) > (x.followers ?? 0)) x.followers = b.followers;
+      x.pos = [...new Set([...x.pos, ...b.pos])];
+      x.neg = [...new Set([...x.neg, ...b.neg])];
+      x.tags = [...new Set([...(x.tags ?? []), ...(b.tags ?? [])])];
+      x.cats = [...new Set([...(x.cats ?? []), ...(b.cats ?? [])])];
+      if (!x.avatar && b.avatar) x.avatar = b.avatar;
+    } else {
+      byH.set(b.h, { ...b });
+    }
+  }
+  return [...byH.values()].sort((a, b) => (b.score ?? -1) - (a.score ?? -1));
+}
+
 /** 多分类结果合并：同一账号可出现在多个分类（overview 显示重叠很常见），
  *  按 handle 去重、记录 cats、字段取并集/最高分，按评分降序输出。纯函数。 */
 export function mergeCategoryResults(
   results: { category: string; bloggers: FljBlogger[] }[],
 ): FljBlogger[] {
-  const byH = new Map<string, FljBlogger>();
+  const flat: FljBlogger[] = [];
   for (const { category, bloggers } of results) {
     for (const b of bloggers) {
-      const prev = byH.get(b.h);
-      if (prev) {
-        prev.cats = [...new Set([...(prev.cats ?? []), category])];
-        if (!prev.n && b.n) prev.n = b.n;
-        if ((b.score ?? -1) > (prev.score ?? -1)) prev.score = b.score;
-        if (b.welfare) prev.welfare = true;
-        if (b.fushi) prev.fushi = true;
-        if (b.threshold) prev.threshold = true;
-        if (b.verifiedReal) prev.verifiedReal = true;
-        if (b.dead) prev.dead = true;
-        if ((b.followers ?? 0) > (prev.followers ?? 0)) prev.followers = b.followers;
-        prev.pos = [...new Set([...prev.pos, ...b.pos])];
-        prev.neg = [...new Set([...prev.neg, ...b.neg])];
-        prev.tags = [...new Set([...(prev.tags ?? []), ...(b.tags ?? [])])];
-        if (!prev.avatar && b.avatar) prev.avatar = b.avatar;
-      } else {
-        byH.set(b.h, { ...b, cats: [category] });
-      }
+      flat.push({ ...b, cats: [...new Set([...(b.cats ?? []), category])] });
     }
   }
-  return [...byH.values()].sort((a, b) => (b.score ?? -1) - (a.score ?? -1));
+  return mergeWithExisting([], flat);
 }
 
 /** 榜单分类总览（/api/rankings/overview）：取全部分类 id；失败用兜底表。 */
@@ -274,19 +283,33 @@ export interface FljSourceResult {
   error?: string;
 }
 
-/** 后台用：同步全部数据源——overview 拿福利鉴分类列表 → 每个分类翻页拉
- *  全 → 两个额外源（boomboom / nsfw.pet）→ 合并去重。任何源失败都不打断
- *  其余源，失败原因随 sources 返回（UI 必须展示，否则用户无从得知某源没
- *  拉到——2026-10-26 实测：两个新源静默失败，Archive 榜筛出空表）。 */
+/** 同步源勾选（UI 三选一/多选）：不传 = 全选（兼容旧调用）。 */
+export interface FljSyncSelection {
+  flj?: boolean;
+  boomboom?: boolean;
+  nsfw?: boolean;
+}
+
+/** 后台用：同步数据源——overview 拿福利鉴分类列表 → 每个分类翻页拉全 →
+ *  两个额外源（boomboom / nsfw.pet）→ 合并去重。selected 控制勾选的站点，
+ *  未勾选的整个跳过。任何源失败都不打断其余源，失败原因随 sources 返回
+ *  （UI 必须展示，否则用户无从得知某源没拉到——2026-10-26 实测：两个新源
+ *  静默失败，Archive 榜筛出空表）。 */
 export async function fetchAllFljCategories(
   log = (_: string) => {},
   onProgress: (p: FljSyncProgress) => void = () => {},
+  selected?: FljSyncSelection,
 ): Promise<{ bloggers: FljBlogger[]; errors: string[]; sources: FljSourceResult[] }> {
   const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+  const sel = selected ?? { flj: true, boomboom: true, nsfw: true };
   onProgress({ phase: "overview", done: 0, totalCats: 0, category: null, unique: 0, snapshot: [] });
-  const cats = await fetchFljOverview();
+  const cats = sel.flj === false ? [] : await fetchFljOverview();
   // 额外数据源（boomboom 归档榜 + nsfw.pet）与福利鉴分类并列。
-  const plan: string[] = [...cats.map((c) => c.id), ...FLJ_EXTRA_SOURCES.map((s) => s.id)];
+  const plan: string[] = [
+    ...cats.map((c) => c.id),
+    ...(sel.boomboom === false ? [] : ["boomboom"]),
+    ...(sel.nsfw === false ? [] : ["nsfw"]),
+  ];
   onProgress({
     phase: "categories",
     done: 0,

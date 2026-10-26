@@ -3862,6 +3862,8 @@ function FljPage() {
   // 完的噪音。
   const [hideFollowed, setHideFollowed] = useState(true);
   const [batch, setBatch] = useState(50);
+  // 同步源勾选：默认全选；至少勾一个才能同步。
+  const [selSources, setSelSources] = useState({ flj: true, boomboom: true, nsfw: true });
   const [msg, setMsg] = useState<{ text: string; ok: boolean } | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -3904,7 +3906,7 @@ function FljPage() {
       setMsg({ text: "需要 flj.info 访问权限才能同步榜单，请授权后重试。", ok: false });
       return;
     }
-    await bg({ type: "flj_sync_start" });
+    await bg({ type: "flj_sync_start", sources: { ...selSources } });
     setSyncing(true);
   };
 
@@ -3980,9 +3982,64 @@ function FljPage() {
         </div>
         <p className="mb-3 text-[12px] leading-relaxed text-fg-3">
           从福利鉴、Archive 榜、NSFW.pet 三个公开榜单拉取博主名单，合并去重后仅存本机，不访问你的 X 账号。
+          勾选要同步的网站（可与既有名单增量合并）：
         </p>
+        <div className="mb-3 flex flex-wrap items-center gap-x-5 gap-y-1.5 text-[12px]">
+          <label className="flex cursor-pointer items-center gap-1.5">
+            <input
+              type="checkbox"
+              checked={selSources.flj}
+              onChange={(e) => setSelSources((s) => ({ ...s, flj: e.target.checked }))}
+            />
+            福利鉴
+            <a
+              href="https://flj.info"
+              target="_blank"
+              rel="noopener"
+              className="text-fg-3 underline-offset-2 hover:text-accent hover:underline"
+            >
+              flj.info
+            </a>
+          </label>
+          <label className="flex cursor-pointer items-center gap-1.5">
+            <input
+              type="checkbox"
+              checked={selSources.boomboom}
+              onChange={(e) => setSelSources((s) => ({ ...s, boomboom: e.target.checked }))}
+            />
+            Archive 榜
+            <a
+              href="https://img.boomboom.nyc.mn/data/archive.json"
+              target="_blank"
+              rel="noopener"
+              className="text-fg-3 underline-offset-2 hover:text-accent hover:underline"
+            >
+              img.boomboom.nyc.mn
+            </a>
+          </label>
+          <label className="flex cursor-pointer items-center gap-1.5">
+            <input
+              type="checkbox"
+              checked={selSources.nsfw}
+              onChange={(e) => setSelSources((s) => ({ ...s, nsfw: e.target.checked }))}
+            />
+            NSFW.pet
+            <a
+              href="https://www.nsfw.pet"
+              target="_blank"
+              rel="noopener"
+              className="text-fg-3 underline-offset-2 hover:text-accent hover:underline"
+            >
+              www.nsfw.pet
+            </a>
+          </label>
+        </div>
         <div className="flex flex-wrap items-center gap-3">
-          <Btn tier="primary" onClick={() => void sync()} disabled={syncing}>
+          <Btn
+            tier="primary"
+            onClick={() => void sync()}
+            disabled={syncing || !Object.values(selSources).some(Boolean)}
+          >
             {syncing ? t("flj.syncing") : data?.syncedAt ? "重新同步" : t("flj.sync")}
           </Btn>
           {data?.syncedAt && !syncing && (

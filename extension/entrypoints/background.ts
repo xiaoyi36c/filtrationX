@@ -703,8 +703,12 @@ export default defineBackground(() => {
               fljSyncRunning = true;
               sendResponse({ ok: true, syncing: true });
               void (async () => {
-                const { fetchAllFljCategories, getFljData, saveFljData } = await import("../lib/flj-sync");
+                const { fetchAllFljCategories, getFljData, saveFljData, mergeWithExisting } =
+                  await import("../lib/flj-sync");
                 try {
+                  // 部分勾选同步时与既有名单合并（而非整体覆盖）——未勾选
+                  // 站点的旧数据保留。
+                  const prev = await getFljData();
                   const { bloggers, sources } = await fetchAllFljCategories(
                     (m) => console.debug("[MXGA] flj", m),
                     (p) => {
@@ -717,15 +721,20 @@ export default defineBackground(() => {
                       };
                       // 每完成一个分类就增量落库：UI 的表格和计数随同步实时增长。
                       if (p.snapshot.length) {
-                        void saveFljData({ syncedAt: null, total: p.unique, bloggers: p.snapshot });
+                        void saveFljData({
+                          syncedAt: null,
+                          total: 0,
+                          bloggers: mergeWithExisting(prev.bloggers, p.snapshot),
+                        });
                       }
                     },
+                    msg.sources,
                   );
-                  const prev = await getFljData();
+                  const finalBloggers = mergeWithExisting(prev.bloggers, bloggers);
                   await saveFljData({
-                    syncedAt: bloggers.length ? Date.now() : prev.syncedAt,
-                    total: bloggers.length,
-                    bloggers: bloggers.length ? bloggers : prev.bloggers,
+                    syncedAt: finalBloggers.length ? Date.now() : prev.syncedAt,
+                    total: finalBloggers.length,
+                    bloggers: finalBloggers.length ? finalBloggers : prev.bloggers,
                   });
                   fljSources = sources;
                   fljProgress = {
@@ -733,7 +742,7 @@ export default defineBackground(() => {
                     done: fljProgress?.totalCats ?? 0,
                     totalCats: fljProgress?.totalCats ?? 0,
                     category: null,
-                    unique: bloggers.length,
+                    unique: finalBloggers.length,
                   };
                 } catch (e) {
                   console.warn("[MXGA] flj sync failed", e);

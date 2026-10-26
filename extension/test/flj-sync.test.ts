@@ -5,6 +5,7 @@ import {
   buildFollowQueue,
   fljTagLabel,
   mergeCategoryResults,
+  mergeWithExisting,
   parseBoomboomArchive,
   parseNsfwPetPage,
   parseRankingsPayload,
@@ -195,6 +196,32 @@ test("mergeCategoryResults：数据源预标 dead 跨分类保留", () => {
   assert.equal(merged.length, 1);
   assert.equal(merged[0]?.dead, true);
   assert.deepEqual(merged[0]?.cats, ["boomboom", "comments"]);
+});
+
+test("mergeWithExisting：部分同步时未勾选站点的旧数据保留、重复 handle 并集合并", () => {
+  const prev = [
+    { h: "flj_girl", n: "旧福利鉴", score: 80, neg: [], pos: [], cats: ["score"] },
+    { h: "boom_girl", n: "旧Archive", score: 60, neg: [], pos: [], cats: ["boomboom"] },
+  ];
+  // 本轮只同步 Archive 榜：flj_girl 必须原样保留
+  const cur = [
+    { h: "boom_girl", n: "新Archive", score: 65, neg: [], pos: [], cats: ["boomboom"] },
+    { h: "nsfw_girl", n: "新NSFW", score: 70, neg: [], pos: [], cats: ["nsfw"] },
+  ];
+  const merged = mergeWithExisting(prev, cur);
+  assert.equal(merged.length, 3);
+  const fljGirl = merged.find((b) => b.h === "flj_girl");
+  assert.equal(fljGirl?.n, "旧福利鉴"); // 未同步的旧条目保留
+  assert.deepEqual(fljGirl?.cats, ["score"]);
+  const boomGirl = merged.find((b) => b.h === "boom_girl");
+  assert.equal(boomGirl?.n, "旧Archive"); // 重复 handle 昵称先到先得（与分类合并一致）
+  assert.equal(boomGirl?.score, 65); // 取最高分
+  assert.deepEqual(boomGirl?.cats, ["boomboom"]); // cats 不引入假分类
+  // 评分降序
+  assert.deepEqual(
+    merged.map((b) => b.h),
+    ["flj_girl", "nsfw_girl", "boom_girl"],
+  );
 });
 
 test("fljTagLabel：已知英文/拼写变体翻译成中文，中文原样，噪音返回 null", () => {
