@@ -506,20 +506,25 @@ export function extractProfile(): Signals | null {
  *  profile page. The edge schema accepts 20; ten is plenty of history. */
 const PROFILE_TWEETS_MAX = 10;
 
+// NOTE: deliberately NO exact-text dedupe here. A wall of identical replies is
+// the strongest local fingerprint of an auto-replier farm (aifarm heuristic,
+// greeting-template lane): collapsing duplicates turns "30 identical greetings"
+// into a single innocent-looking post and the flood becomes undetectable. The
+// edge classifier wants the multiplicity too — its system prompt explicitly
+// counts repeated template texts across DISTINCT posts as corroborating
+// evidence, and each duplicate is its own post here, not a scraping artifact
+// (posts are bounded and read in timeline order).
+
 export function profileTweets(scope: Element | Document, handle: string): string[] {
   const want = handle.toLowerCase();
   const out: string[] = [];
-  const seen = new Set<string>();
   for (const art of scope.querySelectorAll<HTMLElement>('article[data-testid="tweet"]')) {
     if (out.length >= PROFILE_TWEETS_MAX) break;
     if (handleFromArticle(art)?.toLowerCase() !== want) continue; // repost of someone else
     if (isPromoted(art)) continue;
     const text = art.querySelector<HTMLElement>('[data-testid="tweetText"]')?.innerText.trim();
     if (!text) continue;
-    const t = text.slice(0, 500);
-    if (seen.has(t)) continue;
-    seen.add(t);
-    out.push(t);
+    out.push(text.slice(0, 500));
   }
   return out;
 }

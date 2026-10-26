@@ -150,3 +150,38 @@ test("采样不足 6 条不判通道 C（宁漏勿误）", () => {
     null,
   );
 });
+
+test("完全相同的问候语刷屏（去重取消后的真实墙）→ 命中", () => {
+  // 2026-10-26 实测：profileTweets 原先对完全相同文本去重，30 条一模一样的
+  // 问候语只剩 1 条，通道 C 永远凑不够样本。现在的真实形态应直接命中。
+  const wall = Array.from({ length: 10 }, () => "你好呀，我是小八见，很高兴认识你！");
+  const r = matchAifarmHeuristic(
+    sig({ accountAgeDays: 400, statusesCount: 3000, recentTweets: wall }),
+  );
+  assert.ok(r);
+  assert.match(r?.[0] ?? "", /问候模板|模板/);
+});
+
+test("日更系列长文同前缀不误判（前缀通道仅限短文本）", () => {
+  const digest = Array.from(
+    { length: 8 },
+    (_, i) =>
+      `早报：今日要闻速览第 ${i + 1} 期。全球市场综述与科技动态，aily 摘要包括宏观政策、行业变化与公司公告的完整分析，正文很长很长很长。`,
+  );
+  assert.equal(
+    matchAifarmHeuristic(sig({ accountAgeDays: 400, statusesCount: 900, recentTweets: digest })),
+    null,
+  );
+});
+
+test("短模板非问候语刷屏 → 前缀通道命中", () => {
+  const wall = Array.from(
+    { length: 6 },
+    () => "家人们谁懂啊，这个瓜也太离谱了吧",
+  );
+  const r = matchAifarmHeuristic(
+    sig({ accountAgeDays: 150, statusesCount: 4000, recentTweets: wall }),
+  );
+  assert.ok(r);
+  assert.match(r?.[0] ?? "", /模板/);
+});

@@ -70,7 +70,10 @@ function greetingFlood(recentTweets: string[] | undefined): string | null {
   const greeted = texts.filter((t) => GREETING_RE.test(t)).length;
   if (greeted / texts.length >= 0.4) return `问候模板占主页近期采样 ${greeted}/${texts.length} 条`;
   const groups = new Map<string, number>();
+  // 前缀通道只看短文本（≤60 字）：agent 问候回复都是短句；「早报/日更系列」
+  // 类账号每期同前缀但都是长文，不算模板刷屏。
   for (const t of texts) {
+    if (t.length > 60) continue;
     const k = t.slice(0, 12);
     groups.set(k, (groups.get(k) ?? 0) + 1);
   }

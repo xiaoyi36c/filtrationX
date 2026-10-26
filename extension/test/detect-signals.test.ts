@@ -107,7 +107,14 @@ test("a profile page sends the account's own visible posts as recentTweets", () 
   const sig = extractProfile();
   assert.ok(sig);
   assert.equal(sig?.surface, "profile");
-  assert.deepEqual(sig?.recentTweets, ["new painting, oil on canvas", "commissions open this month"]);
+  // Deliberately NOT deduped: identical texts are distinct posts, and their
+  // multiplicity is the local template-flood evidence (aifarm heuristic) plus
+  // the edge classifier's REPETITION signal. Reposts of others are excluded.
+  assert.deepEqual(sig?.recentTweets, [
+    "new painting, oil on canvas",
+    "new painting, oil on canvas",
+    "commissions open this month",
+  ]);
   assert.equal(sig?.triggeringComment, undefined);
   Object.assign(globalThis, {
     document: base.window.document,
