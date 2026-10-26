@@ -3979,8 +3979,7 @@ function FljPage() {
           <span className="text-[11px] uppercase tracking-[0.12em] text-fg-3">公开榜单</span>
         </div>
         <p className="mb-3 text-[12px] leading-relaxed text-fg-3">
-          从 3 个公开数据源拉取 NSFW/成人博主名单——福利鉴 6 个分类（最新爆料 / 最新检索 / 评分最高 / 风俗 / 门槛 /
-          AV女优）、Archive 榜、NSFW.pet——合并去重后仅存本机。只读公开数据，不访问你的 X 账号。
+          从福利鉴、Archive 榜、NSFW.pet 三个公开榜单拉取博主名单，合并去重后仅存本机，不访问你的 X 账号。
         </p>
         <div className="flex flex-wrap items-center gap-3">
           <Btn tier="primary" onClick={() => void sync()} disabled={syncing}>
