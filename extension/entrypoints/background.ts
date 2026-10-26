@@ -170,6 +170,82 @@ async function blockQueueWatchdog(): Promise<void> {
   if (q.running && !q.paused) void pumpBlockQueue();
 }
 
+// ---- 福利鉴博主同步 + 一键关注队列 (二开, lib/flj-sync.ts) ----
+// 榜单同步：后台直接 fetch flj.info（公开 JSON，无需登录），页间带间隔。
+// 关注队列：与一键拉黑同一套基建——后台泵 + 打开的 x.com 标签页执行 + 持久
+// 化进度 + 限流熔断。区别：用户显式点「开始关注」才会跑（绝不自动关注）；
+// 已关注/找不到账号这类一次性失败只计数跳过，熔断只看限流类失败。
+let fljSyncRunning = false;
+let followQueuePumping = false;
+const FOLLOW_PUMP_INTERVAL_MS = 1800;
+const FOLLOW_PUMP_JITTER_MS = 800;
+const FOLLOW_MAX_FAIL_STREAK = 5;
+
+async function pumpFollowQueue(): Promise<void> {
+  if (followQueuePumping) return;
+  followQueuePumping = true;
+  try {
+    let failStreak = 0;
+    for (;;) {
+      const { getFollowQueue, saveFollowQueue } = await import("../lib/flj-sync");
+      const { BLOCK_QUEUE_WORKER_KEY } = await import("../lib/block-queue");
+      const q = await getFollowQueue();
+      if (!q.running) return;
+      if (q.cursor >= q.items.length) {
+        q.running = false;
+        q.finishedAt = Date.now();
+        await saveFollowQueue(q);
+        return;
+      }
+      const worker = (await chrome.storage.local.get(BLOCK_QUEUE_WORKER_KEY))[
+        BLOCK_QUEUE_WORKER_KEY
+      ] as { tabId?: number | null } | undefined;
+      type FollowExecResult = { ok?: boolean; retryable?: boolean; skipped?: boolean; status?: number };
+      let res: FollowExecResult | null = null;
+      if (worker?.tabId) {
+        try {
+          res = (await chrome.tabs.sendMessage(worker.tabId, {
+            type: "follow_queue_exec",
+            item: q.items[q.cursor],
+          })) as FollowExecResult;
+        } catch {
+          res = null;
+        }
+      }
+      if (!res) {
+        q.running = false;
+        q.finishedAt = Date.now();
+        q.lastError = "需要打开一个 x.com 标签页来执行关注——打开后重新点「开始关注」会从断点继续";
+        await saveFollowQueue(q);
+        return;
+      }
+      q.cursor++;
+      if (res.ok || res.skipped) {
+        q.done++;
+        q.lastError = null;
+        failStreak = 0;
+      } else {
+        q.failed++;
+        q.lastError = res.status ? `X 返回 ${res.status}（可能已关注）` : "关注未执行";
+        // 熔断只看限流类失败（retryable = 429/5xx 等）；「已关注」这类
+        // 一次性失败只计数跳过，别把整个队列打断。
+        if (res.retryable) failStreak++;
+      }
+      if (failStreak >= FOLLOW_MAX_FAIL_STREAK) {
+        q.running = false;
+        q.finishedAt = Date.now();
+        q.lastError = "连续限流失败过多，已停止——稍后再试";
+        await saveFollowQueue(q);
+        return;
+      }
+      await saveFollowQueue(q);
+      await blockQueueSleep(FOLLOW_PUMP_INTERVAL_MS + Math.floor(Math.random() * FOLLOW_PUMP_JITTER_MS));
+    }
+  } finally {
+    followQueuePumping = false;
+  }
+}
+
 // ---- X 原生拉黑列表同步 (二开, lib/blocks-sync.ts) ----
 // Manual paged pull of the user's own blocks via an open x.com tab. Read-only
 // GETs with a short inter-page delay; the accumulated list is checkpointed to
@@ -486,6 +562,72 @@ export default defineBackground(() => {
           } else if (msg.type === "block_queue_status") {
             const { getBlockQueue } = await import("../lib/block-queue");
             sendResponse({ ok: true, data: await getBlockQueue() });
+          } else if (msg.type === "flj_sync_start") {
+            if (fljSyncRunning) {
+              sendResponse({ ok: true, syncing: true });
+            } else {
+              fljSyncRunning = true;
+              sendResponse({ ok: true, syncing: true });
+              void (async () => {
+                const { fetchFljRankings, getFljData, saveFljData } = await import("../lib/flj-sync");
+                try {
+                  const { bloggers, total } = await fetchFljRankings("comments", (m) =>
+                    console.debug("[MXGA] flj", m),
+                  );
+                  const prev = await getFljData();
+                  await saveFljData({
+                    syncedAt: bloggers.length ? Date.now() : prev.syncedAt,
+                    total: total || bloggers.length,
+                    bloggers: bloggers.length ? bloggers : prev.bloggers,
+                  });
+                } catch (e) {
+                  console.warn("[MXGA] flj sync failed", e);
+                } finally {
+                  fljSyncRunning = false;
+                }
+              })();
+            }
+          } else if (msg.type === "flj_status") {
+            const { getFljData } = await import("../lib/flj-sync");
+            sendResponse({ ok: true, data: { flj: await getFljData(), syncing: fljSyncRunning } });
+          } else if (msg.type === "follow_queue_start") {
+            const { getFljData, buildFollowQueue, getFollowQueue, saveFollowQueue } = await import(
+              "../lib/flj-sync"
+            );
+            const data = await getFljData();
+            if (!data.bloggers.length) {
+              sendResponse({ ok: false, error: "先同步福利鉴榜单" });
+            } else {
+              const items = buildFollowQueue(data.bloggers, {
+                skipNegative: msg.skipNegative !== false,
+                max: msg.max ?? 50,
+              });
+              if (!items.length) {
+                sendResponse({ ok: false, error: "筛选后没有可关注的博主" });
+              } else {
+                const q = await getFollowQueue();
+                q.items = items.map((b) => ({ h: b.h, ...(b.n ? { n: b.n } : {}) }));
+                q.cursor = 0;
+                q.done = 0;
+                q.failed = 0;
+                q.running = true;
+                q.lastError = null;
+                q.finishedAt = null;
+                await saveFollowQueue(q);
+                sendResponse({ ok: true, data: { total: items.length } });
+                void pumpFollowQueue();
+              }
+            }
+          } else if (msg.type === "follow_queue_stop") {
+            const { getFollowQueue, saveFollowQueue } = await import("../lib/flj-sync");
+            const q = await getFollowQueue();
+            q.running = false;
+            q.finishedAt = Date.now();
+            await saveFollowQueue(q);
+            sendResponse({ ok: true });
+          } else if (msg.type === "follow_queue_status") {
+            const { getFollowQueue } = await import("../lib/flj-sync");
+            sendResponse({ ok: true, data: await getFollowQueue() });
           } else if (msg.type === "blocks_sync_start") {
             const { getXBlocksSyncState, saveXBlocksSyncState } = await import("../lib/blocks-sync");
             const st = await getXBlocksSyncState();

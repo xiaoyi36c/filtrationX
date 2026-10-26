@@ -11,7 +11,7 @@
 //
 // Recovered and generalized from the pre-v0.5.0 block implementation.
 
-export type XActionKind = "mute" | "block" | "unblock";
+export type XActionKind = "mute" | "block" | "unblock" | "follow" | "unfollow";
 
 export interface XActionAttempt {
   ok: boolean;
@@ -36,6 +36,9 @@ const ENDPOINT: Record<XActionKind, string> = {
   mute: "/i/api/1.1/mutes/users/create.json",
   // 误操作恢复（二开）：解除拉黑，走同一套限速队列。
   unblock: "/i/api/1.1/blocks/destroy.json",
+  // 福利鉴博主一键关注（二开）：与 mute/block 同一套 ct0 限速队列。
+  follow: "/i/api/1.1/friendships/create.json",
+  unfollow: "/i/api/1.1/friendships/destroy.json",
 };
 
 // Pacing — shared across both action kinds (both are write actions against

@@ -131,10 +131,22 @@ export type BgRequest =
   | { type: "blocks_sync_status" }
   // 误操作恢复：options 页发起，经 background 中继到 x.com 执行器 tab
   // 调用 blocks/destroy（同一套限速队列）。
-  | { type: "x_unblock_exec"; u: string; h: string };
+  | { type: "x_unblock_exec"; u: string; h: string }
+  // 福利鉴博主同步 + 一键关注 (二开, lib/flj-sync.ts)：榜单从 flj.info 拉
+  // （公开 JSON，无需登录，仅存本机）；关注队列与一键拉黑同一套基建，
+  // 用户显式点「开始关注」才跑。
+  | { type: "flj_sync_start" }
+  | { type: "flj_status" }
+  | { type: "follow_queue_start"; max: number; skipNegative?: boolean }
+  | { type: "follow_queue_stop" }
+  | { type: "follow_queue_status" }
+  // x.com 执行器收到的一个关注目标（后台泵逐个派发）。
+  | { type: "follow_queue_exec"; item: { h: string; n?: string } };
 
 export interface BgResponse {
   ok: boolean;
   data?: unknown;
   error?: string;
+  /** flj_sync_start：同步是否已在进行中（幂等启动）。 */
+  syncing?: boolean;
 }

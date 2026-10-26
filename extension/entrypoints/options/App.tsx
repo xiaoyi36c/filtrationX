@@ -83,6 +83,7 @@ import {
   tweetUrl,
 } from "../../lib/store";
 import { clearDetectionCache } from "../../lib/cache";
+import type { FljData, FollowQueueState } from "../../lib/flj-sync";
 import type { Label } from "../../lib/types";
 
 const REPO = BRAND.repo;
@@ -1573,6 +1574,25 @@ const X_ORIGINS = ["*://x.com/*", "*://twitter.com/*"];
 // user's own custom-rules repo file sync (lib/gh-repo.ts, Contents API —
 // requested together so one login prompt covers both).
 const GH_ORIGINS = ["https://github.com/*", "https://api.github.com/*"];
+// flj.info（福利鉴，二开）：博主榜单同步所需的可选 host 权限。
+const FLJ_ORIGINS = ["https://flj.info/*"];
+async function ensureFljPermission(): Promise<boolean> {
+  if (import.meta.env.SAFARI) return true;
+  try {
+    const api: {
+      permissions: { request: (p: { origins: string[] }) => Promise<boolean> | undefined; contains: (p: { origins: string[] }) => Promise<boolean> };
+    } =
+      import.meta.env.BROWSER === "firefox"
+        ? ((globalThis as { browser?: unknown }).browser as never)
+        : (chrome as never);
+    // Firefox 需要在用户手势内同步调用 request（见 ensureXPermission 注释）；
+    // 已授权时 request 立即返回 true，无条件调用无害。
+    await api.permissions.request({ origins: FLJ_ORIGINS });
+    return await api.permissions.contains({ origins: FLJ_ORIGINS });
+  } catch {
+    return false;
+  }
+}
 // Firefox MV3 data-collection consent needed by online AI checks and whitelist requests.
 const FIREFOX_DATA_COLLECTION = ["authenticationInfo", "personallyIdentifyingInfo", "websiteContent"];
 
@@ -3802,10 +3822,293 @@ function LanguagePage() {
   );
 }
 
+/** 福利鉴博主页（二开）：从 flj.info 排行榜同步博主名单（仅存本机），按
+ *  筛选条件构建队列并一键批量关注。执行基建与一键拉黑完全相同——后台泵 +
+ *  打开的 x.com 标签页执行 + 限速 + 熔断；用户显式点「开始关注」才会跑。 */
+function FljPage() {
+  const { t } = useT();
+  const bg = (m: unknown) =>
+    new Promise<{ ok: boolean; data?: Record<string, unknown>; error?: string }>((res) => {
+      try {
+        chrome.runtime.sendMessage(m, (r) => res(r ?? { ok: false, error: "no response" }));
+      } catch (e) {
+        res({ ok: false, error: e instanceof Error ? e.message : String(e) });
+      }
+    });
+  const [data, setData] = useState<FljData | null>(null);
+  const [syncing, setSyncing] = useState(false);
+  const [q, setQ] = useState<FollowQueueState | null>(null);
+  const [search, setSearch] = useState("");
+  const [skipNegative, setSkipNegative] = useState(true);
+  const [excludeFushi, setExcludeFushi] = useState(false);
+  const [batch, setBatch] = useState(50);
+  const [msg, setMsg] = useState<{ text: string; ok: boolean } | null>(null);
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [limit, setLimit] = useState(200);
+
+  useEffect(() => {
+    let alive = true;
+    const tick = async () => {
+      const s = await bg({ type: "flj_status" });
+      if (alive && s?.ok) {
+        const d = s.data as { flj: FljData; syncing: boolean };
+        setData(d.flj);
+        setSyncing(d.syncing);
+      }
+      const fq = await bg({ type: "follow_queue_status" });
+      if (alive && fq?.ok) setQ(fq.data as unknown as FollowQueueState);
+    };
+    void tick();
+    const timer = setInterval(() => void tick(), 2000);
+    return () => {
+      alive = false;
+      clearInterval(timer);
+    };
+  }, []);
+
+  const sync = async () => {
+    setMsg(null);
+    if (!(await ensureFljPermission())) {
+      setMsg({ text: "需要 flj.info 访问权限才能同步榜单，请授权后重试。", ok: false });
+      return;
+    }
+    await bg({ type: "flj_sync_start" });
+    setSyncing(true);
+  };
+
+  const bloggers = data?.bloggers ?? [];
+  const rows = useMemo(() => {
+    const s = search.trim().toLowerCase();
+    return bloggers.filter((b) => {
+      if (excludeFushi && b.fushi) return false;
+      if (s && !`${b.h} ${b.n ?? ""}`.toLowerCase().includes(s)) return false;
+      return true;
+    });
+  }, [bloggers, excludeFushi, search]);
+  const shown = rows.slice(0, limit);
+
+  const startFollow = async () => {
+    setMsg(null);
+    setBusy(true);
+    try {
+      const r = await bg({ type: "follow_queue_start", max: batch, skipNegative });
+      if (!r?.ok) {
+        setMsg({ text: r?.error ?? "无法开始关注队列", ok: false });
+      } else {
+        const total = (r.data as { total?: number })?.total ?? 0;
+        setMsg({
+          text: `已开始关注 ${total} 位博主（约 2-3 秒/个）——保持一个打开的 x.com 标签页。`,
+          ok: true,
+        });
+      }
+      setConfirmOpen(false);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const stop = async () => {
+    await bg({ type: "follow_queue_stop" });
+  };
+
+  const pending = Math.max(0, (q?.items.length ?? 0) - (q?.cursor ?? 0));
+  return (
+    <Page
+      title={t("page.flj.title")}
+      sub={t("page.flj.sub")}
+    >
+      <div className="mb-4 flex flex-wrap items-center gap-3">
+        <Btn tier="primary" onClick={() => void sync()} disabled={syncing}>
+          {syncing ? t("flj.syncing") : t("flj.sync")}
+        </Btn>
+        {data?.syncedAt && (
+          <span className="text-[12px] text-fg-3">
+            {t("flj.syncedAt")} {new Date(data.syncedAt).toLocaleString()} · {bloggers.length.toLocaleString("zh-CN")}{" "}
+            {t("flj.count")}
+          </span>
+        )}
+        {msg && <span className={`text-[12px] ${msg.ok ? "text-ok" : "text-danger"}`}>{msg.text}</span>}
+      </div>
+
+      {bloggers.length === 0 ? (
+        <p className="py-10 text-center text-[13px] text-fg-3">{t("flj.none")}</p>
+      ) : (
+        <>
+          <div className="mb-4 flex flex-wrap items-center gap-x-5 gap-y-2 text-[12px] text-fg-2">
+            <label className="flex cursor-pointer items-center gap-1.5">
+              <input type="checkbox" checked={skipNegative} onChange={(e) => setSkipNegative(e.target.checked)} />
+              {t("flj.skipNegative")}
+            </label>
+            <label className="flex cursor-pointer items-center gap-1.5">
+              <input type="checkbox" checked={excludeFushi} onChange={(e) => setExcludeFushi(e.target.checked)} />
+              {t("flj.excludeFushi")}
+            </label>
+            <label className="flex items-center gap-1.5">
+              {t("flj.batch")}
+              <select
+                value={batch}
+                onChange={(e) => setBatch(Number(e.target.value))}
+                className="rounded-md border border-border-2 bg-transparent px-2 py-1 text-[12px]"
+              >
+                <option value={20}>20</option>
+                <option value={50}>50</option>
+                <option value={100}>100</option>
+                <option value={10000}>全部</option>
+              </select>
+            </label>
+            <input
+              value={search}
+              onChange={(e) => {
+                setSearch(e.target.value);
+                setLimit(200);
+              }}
+              placeholder="搜索 handle / 昵称"
+              className="w-[200px] rounded-md border border-border-2 bg-transparent px-3 py-1.5 text-[12px] outline-none transition focus:border-accent"
+            />
+            {q?.running ? (
+              <Btn tier="danger" onClick={() => void stop()}>
+                {t("flj.stop")}
+              </Btn>
+            ) : (
+              <Btn tier="primary" onClick={() => setConfirmOpen(true)} disabled={!rows.length}>
+                {t("flj.follow")}
+              </Btn>
+            )}
+          </div>
+
+          {q && (q.running || q.cursor > 0) && (
+            <p className="mb-4 text-[12px] text-fg-2">
+              {t("flj.progress")}：{q.done.toLocaleString("zh-CN")} 已完成 / {q.failed.toLocaleString("zh-CN")} 失败 /
+              剩余 {pending.toLocaleString("zh-CN")}
+              {q.lastError ? ` · ${q.lastError}` : ""}
+              {!q.running && !navigator.onLine ? "" : q.running ? " · 执行中（需要打开的 x.com 标签页）" : ""}
+            </p>
+          )}
+          {!q?.running && (
+            <p className="mb-4 text-[12px] text-fg-3">{t("flj.needTab")}</p>
+          )}
+
+          <div className="overflow-x-auto rounded-lg border border-border">
+            <table className="w-full min-w-[720px] border-collapse text-[13px]">
+              <thead className="bg-card">
+                <tr>
+                  <th className={th}>博主</th>
+                  <th className={th}>评分</th>
+                  <th className={th}>标签</th>
+                  <th className={th}>粉丝</th>
+                </tr>
+              </thead>
+              <tbody>
+                {shown.map((b) => (
+                  <tr key={b.h} className={trHover}>
+                    <td className={td}>
+                      <div className="flex items-center gap-2.5">
+                        <AvatarLink handle={b.h} url={b.avatar} name={b.n || b.h} />
+                        <div className="min-w-0">
+                          <div className="max-w-[220px] truncate font-semibold tracking-[-0.005em]">
+                            <a
+                              href={`https://x.com/${encodeURIComponent(b.h)}`}
+                              target="_blank"
+                              rel="noopener"
+                              className="text-fg transition hover:text-accent"
+                              title={`去 @${b.h} 的 X 主页`}
+                            >
+                              {b.n || `@${b.h}`}
+                            </a>
+                          </div>
+                          <div className="max-w-[220px] truncate text-[12px] text-fg-3">
+                            <HandleLink handle={b.h} className="text-fg-3" />
+                          </div>
+                        </div>
+                      </div>
+                    </td>
+                    <td className={`${td} font-mono text-[12px]`}>
+                      {typeof b.score === "number" ? b.score.toFixed(1) : "—"}
+                    </td>
+                    <td className={td}>
+                      <div className="flex flex-wrap gap-1 text-[11px]">
+                        {b.welfare && (
+                          <span className="rounded bg-ok/15 px-1.5 py-0.5 text-ok">福利</span>
+                        )}
+                        {b.verifiedReal && (
+                          <span className="rounded bg-ok/15 px-1.5 py-0.5 text-ok">实名</span>
+                        )}
+                        {b.fushi && (
+                          <span className="rounded bg-danger/15 px-1.5 py-0.5 text-danger">风俗</span>
+                        )}
+                        {b.threshold && (
+                          <span className="rounded bg-danger/15 px-1.5 py-0.5 text-danger">门槛</span>
+                        )}
+                        {b.neg.map((n) => (
+                          <span key={n} className="rounded bg-danger/15 px-1.5 py-0.5 text-danger">
+                            {NEG_TAG_ZH[n] ?? n}
+                          </span>
+                        ))}
+                        {b.pos
+                          .filter((p) => p !== "verified_real")
+                          .map((p) => (
+                            <span key={p} className="rounded bg-accent/15 px-1.5 py-0.5 text-accent">
+                              {POS_TAG_ZH[p] ?? p}
+                            </span>
+                          ))}
+                      </div>
+                    </td>
+                    <td className={`${td} font-mono text-[12px] text-fg-3`}>
+                      {typeof b.followers === "number" ? b.followers.toLocaleString("zh-CN") : "—"}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {rows.length > shown.length && (
+            <div className="mt-3">
+              <Btn onClick={() => setLimit((n) => n + 200)}>
+                显示更多（还有 {(rows.length - shown.length).toLocaleString("zh-CN")} 个）
+              </Btn>
+            </div>
+          )}
+        </>
+      )}
+
+      <ConfirmDialog
+        open={confirmOpen}
+        title="开始一键关注？"
+        body={
+          <>
+            <p>
+              将按当前筛选关注最多 <b>{batch}</b> 位博主（{skipNegative ? "已排除负面标签" : "未排除负面标签"}）。
+            </p>
+            <p className="mt-2 text-fg-3">
+              节奏约 2-3 秒/个，走你自己的 X 登录态；执行期间请保持一个打开的 x.com
+              标签页。可随时点「停止」。
+            </p>
+          </>
+        }
+        okLabel="开始关注"
+        onConfirm={() => void startFollow()}
+        onCancel={() => setConfirmOpen(false)}
+      />
+    </Page>
+  );
+}
+
+const NEG_TAG_ZH: Record<string, string> = {
+  stolen_photo: "盗图",
+  fake_gender: "照骗",
+  scam: "诈骗",
+};
+const POS_TAG_ZH: Record<string, string> = {
+  recommended: "推荐",
+  trusted: "可信",
+};
+
 const TABS = [
   ["overview", "nav.overview", Overview],
   ["blocklist", "nav.blocklist", Blocklist],
   ["xblocks", "nav.xblocks", XBlocksPage],
+  ["flj", "nav.flj", FljPage],
   ["cache", "nav.cache", Cache],
   ["settings", "nav.settings", Settings],
   ["language", "nav.language", LanguagePage],

@@ -502,6 +502,38 @@ export default defineContentScript({
         return true;
       },
     );
+    // ---- 福利鉴博主一键关注执行器（二开）：与一键拉黑同一套基建，用户在
+    // options 显式点「开始关注」后由后台泵逐个派发。----
+    chrome.runtime.onMessage.addListener(
+      (msg: { type?: string; item?: { h: string; n?: string } }, _s, sendResponse) => {
+        if (msg?.type !== "follow_queue_exec") return;
+        void (async () => {
+          try {
+            const item = msg.item;
+            if (!item || !item.h) {
+              sendResponse({ ok: false, retryable: false });
+              return;
+            }
+            const viewer = viewerHandle() ?? lastViewer;
+            const allowed = () =>
+              settings.enabled &&
+              item.h.toLowerCase() !== (viewer ?? "").toLowerCase() &&
+              !protectedAccount({ handle: item.h });
+            if (!allowed()) {
+              sendResponse({ ok: false, retryable: false, skipped: true });
+              return;
+            }
+            const { performXAction } = await import("../lib/x-action");
+            const r = await performXAction("follow", undefined, item.h, allowed);
+            // 已关注/找不到账号等一次性失败：不重试，交给泵计数跳过。
+            sendResponse(r);
+          } catch {
+            sendResponse({ ok: false, retryable: false });
+          }
+        })();
+        return true;
+      },
+    );
     // ---- X 原生拉黑列表同步（二开）：只读分页 GET blocks/list.json ----
     chrome.runtime.onMessage.addListener(
       (msg: { type?: string; cursor?: string }, _s, sendResponse) => {

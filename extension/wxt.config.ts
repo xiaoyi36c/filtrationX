@@ -56,6 +56,8 @@ export default defineConfig({
             // repo file (lib/gh-repo.ts). Requested alongside github.com at
             // login; CORS also permits direct fetches without it.
             "https://api.github.com/*",
+            // flj.info（福利鉴，二开）：博主榜单同步（lib/flj-sync.ts）。
+            "https://flj.info/*",
           ],
         }
       : browser === "safari"
@@ -65,6 +67,7 @@ export default defineConfig({
               "*://twitter.com/*",
               "https://github.com/*",
               "https://api.github.com/*",
+              "https://flj.info/*",
             ],
             // Safari requires packaged resources fetched by a content script
             // to be explicitly exposed. This bundled snapshot is only the
@@ -83,6 +86,7 @@ export default defineConfig({
               "*://twitter.com/*",
               "https://github.com/*",
               "https://api.github.com/*",
+              "https://flj.info/*",
             ],
           }),
     action: { default_title: "filtrationX" },
