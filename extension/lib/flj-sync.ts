@@ -53,6 +53,15 @@ export const FLJ_CATEGORY_ZH: Record<string, string> = {
 };
 /** overview 拉不到时的兜底分类表。 */
 const FLJ_FALLBACK_CATEGORIES = Object.keys(FLJ_CATEGORY_ZH);
+/** 额外数据源（与福利鉴分类并列展示）。 */
+export const FLJ_EXTRA_SOURCES: { id: string; label: string }[] = [
+  { id: "boomboom", label: "Archive 榜" },
+  { id: "nsfw", label: "NSFW.pet" },
+];
+/** 全部 cats 值的中文名（含福利鉴分类与额外数据源）。 */
+export function fljCatLabel(id: string): string {
+  return FLJ_CATEGORY_ZH[id] ?? FLJ_EXTRA_SOURCES.find((s) => s.id === id)?.label ?? id;
+}
 
 export interface FljData {
   syncedAt: number | null;
@@ -236,10 +245,12 @@ export async function fetchAllFljCategories(
   const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
   onProgress({ phase: "overview", done: 0, totalCats: 0, category: null, unique: 0, snapshot: [] });
   const cats = await fetchFljOverview();
+  // 额外数据源（boomboom 归档榜 + nsfw.pet）与福利鉴分类并列。
+  const plan: string[] = [...cats.map((c) => c.id), ...FLJ_EXTRA_SOURCES.map((s) => s.id)];
   onProgress({
     phase: "categories",
     done: 0,
-    totalCats: cats.length,
+    totalCats: plan.length,
     category: null,
     unique: 0,
     snapshot: [],
@@ -247,32 +258,153 @@ export async function fetchAllFljCategories(
   const results: { category: string; bloggers: FljBlogger[] }[] = [];
   const errors: string[] = [];
   let merged: FljBlogger[] = [];
-  for (let i = 0; i < cats.length; i++) {
-    const id = cats[i]!.id;
+  for (let i = 0; i < plan.length; i++) {
+    const id = plan[i]!;
     onProgress({
       phase: "categories",
       done: i,
-      totalCats: cats.length,
+      totalCats: plan.length,
       category: id,
       unique: merged.length,
       snapshot: merged,
     });
-    const r = await fetchFljRankings(id, log);
-    results.push({ category: id, bloggers: r.bloggers });
-    errors.push(...r.errors);
+    try {
+      const bloggers =
+        id === "boomboom"
+          ? await fetchBoomboomArchive(log)
+          : id === "nsfw"
+            ? await fetchNsfwPet(log)
+            : (await fetchFljRankings(id, log)).bloggers;
+      results.push({ category: id, bloggers });
+    } catch (e) {
+      // 单个源失败不影响其余源
+      errors.push(`${id}：${e instanceof Error ? e.message : String(e)}`);
+    }
     merged = mergeCategoryResults(results);
     onProgress({
       phase: "categories",
       done: i + 1,
-      totalCats: cats.length,
+      totalCats: plan.length,
       category: id,
       unique: merged.length,
       snapshot: merged,
     });
-    log(`分类 ${id}：${r.bloggers.length} 条（累计去重 ${merged.length}）`);
+    log(`分类 ${id}：+${results[results.length - 1]?.bloggers.length ?? 0} 条（累计去重 ${merged.length}）`);
     await sleep(FLJ_PAGE_DELAY_MS + Math.floor(Math.random() * FLJ_PAGE_JITTER_MS));
   }
   return { bloggers: merged, errors };
+}
+
+// ---- 额外数据源 ----
+
+const FETCH_TIMEOUT_MS = 20_000;
+
+async function fetchJson(url: string): Promise<unknown> {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), FETCH_TIMEOUT_MS);
+  try {
+    const r = await fetch(url, { headers: { accept: "application/json" }, signal: ctrl.signal });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    return await r.json();
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** boomboom 归档榜解析（单文件 JSON 数组）：字段 screen_name/name/
+ *  followers_count/avatar_url/verified/is_suspended。头像多为相对路径
+ *  （/api/media?key=…），拼站点前缀。纯函数，可测。 */
+export function parseBoomboomArchive(payload: unknown): FljBlogger[] {
+  if (!Array.isArray(payload)) return [];
+  const out: FljBlogger[] = [];
+  for (const raw of payload) {
+    if (!raw || typeof raw !== "object") continue;
+    const it = raw as Record<string, unknown>;
+    const h = typeof it.screen_name === "string" ? it.screen_name.trim().toLowerCase() : "";
+    if (!h || !/^[a-z0-9_]{1,15}$/.test(h)) continue;
+    const av = typeof it.avatar_url === "string" ? it.avatar_url : "";
+    out.push({
+      h,
+      ...(typeof it.name === "string" && it.name ? { n: it.name } : {}),
+      ...(typeof it.followers_count === "number" ? { followers: it.followers_count } : {}),
+      neg: [],
+      pos: [],
+      ...(av ? { avatar: av.startsWith("http") ? av : `https://img.boomboom.nyc.mn${av}` } : {}),
+    });
+  }
+  return out;
+}
+
+/** boomboom 归档榜（单文件 JSON，约 160 条）。 */
+export async function fetchBoomboomArchive(log = (_: string) => {}): Promise<FljBlogger[]> {
+  const out = parseBoomboomArchive(await fetchJson("https://img.boomboom.nyc.mn/data/archive.json"));
+  log(`boomboom：${out.length} 条`);
+  return out;
+}
+
+/** nsfw.pet 单页解析：{ data: { creators, meta: { total, has_more } } }，
+ *  handle 去掉 @、统一小写。纯函数，可测。 */
+export function parseNsfwPetPage(payload: unknown): {
+  bloggers: FljBlogger[];
+  hasMore: boolean;
+  total: number;
+} {
+  const out: FljBlogger[] = [];
+  let hasMore = false;
+  let total = 0;
+  const box = (payload ?? {}) as {
+    data?: { creators?: unknown; meta?: { has_more?: unknown; total?: unknown } };
+  };
+  const creators = box.data?.creators;
+  if (Array.isArray(creators)) {
+    for (const raw of creators) {
+      if (!raw || typeof raw !== "object") continue;
+      const it = raw as Record<string, unknown>;
+      const h = typeof it.handle === "string" ? it.handle.trim().replace(/^@/, "").toLowerCase() : "";
+      if (!h || !/^[a-z0-9_]{1,15}$/.test(h)) continue;
+      const av = typeof it.avatarUrl === "string" ? it.avatarUrl : "";
+      out.push({
+        h,
+        ...(typeof it.name === "string" && it.name ? { n: it.name } : {}),
+        ...(typeof it.followers === "number" ? { followers: it.followers } : {}),
+        neg: [],
+        pos: Array.isArray(it.tags)
+          ? (it.tags as unknown[]).filter((x): x is string => typeof x === "string")
+          : [],
+        ...(av ? { avatar: av } : {}),
+      });
+    }
+  }
+  hasMore = box.data?.meta?.has_more === true;
+  total = typeof box.data?.meta?.total === "number" ? (box.data.meta.total as number) : 0;
+  return { bloggers: out, hasMore, total };
+}
+
+/** nsfw.pet 创作者榜（limit/offset 分页，total≈300）：has_more 为蛇形命名。 */
+export async function fetchNsfwPet(log = (_: string) => {}): Promise<FljBlogger[]> {
+  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+  const out: FljBlogger[] = [];
+  const seen = new Set<string>();
+  const LIMIT = 50;
+  const MAX_PAGES = 15; // 300 条 ≈ 6 页，留余量
+  let offset = 0;
+  for (let page = 0; page < MAX_PAGES; page++) {
+    const { bloggers: pageItems, hasMore } = parseNsfwPetPage(
+      await fetchJson(
+        `https://www.nsfw.pet/api/creators?sort=followers-desc&limit=${LIMIT}&offset=${offset}`,
+      ),
+    );
+    for (const b of pageItems) {
+      if (seen.has(b.h)) continue;
+      seen.add(b.h);
+      out.push(b);
+    }
+    log(`nsfw.pet 第 ${page + 1} 页：累计 ${out.length}`);
+    if (!hasMore) break;
+    offset += LIMIT;
+    await sleep(FLJ_PAGE_DELAY_MS + Math.floor(Math.random() * FLJ_PAGE_JITTER_MS));
+  }
+  return out;
 }
 
 /** 后台用：拉取单个榜单分类的全部分页（顺序、带间隔），失败页跳过并继续。 */

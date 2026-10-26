@@ -85,6 +85,8 @@ import {
 import { clearDetectionCache } from "../../lib/cache";
 import {
   FLJ_CATEGORY_ZH,
+  FLJ_EXTRA_SOURCES,
+  fljCatLabel,
   type FljData,
   type FljSyncProgress,
   type FollowQueueState,
@@ -1579,8 +1581,9 @@ const X_ORIGINS = ["*://x.com/*", "*://twitter.com/*"];
 // user's own custom-rules repo file sync (lib/gh-repo.ts, Contents API —
 // requested together so one login prompt covers both).
 const GH_ORIGINS = ["https://github.com/*", "https://api.github.com/*"];
-// flj.info（福利鉴，二开）：博主榜单同步所需的可选 host 权限。
-const FLJ_ORIGINS = ["https://flj.info/*"];
+// flj.info（福利鉴，二开）：博主榜单同步所需的可选 host 权限（含两个额外
+// 榜单源：boomboom 归档榜 / nsfw.pet）。
+const FLJ_ORIGINS = ["https://flj.info/*", "https://img.boomboom.nyc.mn/*", "https://www.nsfw.pet/*"];
 async function ensureFljPermission(): Promise<boolean> {
   if (import.meta.env.SAFARI) return true;
   try {
@@ -3942,7 +3945,8 @@ function FljPage() {
         </div>
         <p className="mb-3 text-[12px] leading-relaxed text-fg-3">
           拉取 flj.info 的 6 个分类榜单（最新爆料 / 最新检索 / 评分最高 / 风俗 / 门槛 / AV
-          女优），合并去重后仅存本机。这一步只读公开网页数据，不会访问你的 X 账号。
+          女优），外加两个数据源（Archive 榜、NSFW.pet），合并去重后仅存本机。这一步只读公开网页数据，不会访问你的
+          X 账号。
         </p>
         <div className="flex flex-wrap items-center gap-3">
           <Btn tier="primary" onClick={() => void sync()} disabled={syncing}>
@@ -3967,7 +3971,7 @@ function FljPage() {
             <p className="mt-1.5 text-[12px] text-fg-2">
               {prog.phase === "overview"
                 ? "获取分类列表…"
-                : `正在同步「${FLJ_CATEGORY_ZH[prog.category ?? ""] ?? prog.category ?? ""}」（${prog.done}/${prog.totalCats}）· 已累计 ${prog.unique.toLocaleString("zh-CN")} 位`}
+                : `正在同步「${fljCatLabel(prog.category ?? "")}」（${prog.done}/${prog.totalCats}）· 已累计 ${prog.unique.toLocaleString("zh-CN")} 位`}
             </p>
           </div>
         )}
@@ -4015,12 +4019,14 @@ function FljPage() {
                   className="rounded-md border border-border-2 bg-transparent px-2 py-1 text-[12px]"
                 >
                   <option value="all">全部</option>
-                  {Object.entries(FLJ_CATEGORY_ZH).map(([id, label]) => (
-                    <option key={id} value={id}>
-                      {label}
-                    </option>
-                  ))}
-                </select>
+                  {Object.entries(FLJ_CATEGORY_ZH)
+                    .concat(FLJ_EXTRA_SOURCES.map((s) => [s.id, s.label] as [string, string]))
+                    .map(([id, label]) => (
+                      <option key={id} value={id}>
+                        {label}
+                      </option>
+                    ))}
+                  </select>
               </label>
               <label className="flex items-center gap-1.5">
                 {t("flj.batch")}
@@ -4143,7 +4149,7 @@ function FljPage() {
                           .filter((c) => c !== cat)
                           .map((c) => (
                             <span key={c} className="rounded bg-fg/5 px-1.5 py-0.5 text-fg-3">
-                              {FLJ_CATEGORY_ZH[c] ?? c}
+                              {fljCatLabel(c)}
                             </span>
                           ))}
                       </div>

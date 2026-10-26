@@ -33,6 +33,9 @@ test("Firefox manifest uses the consent-compatible release baselines", async () 
     "https://api.github.com/*",
     // flj.info（福利鉴，二开）：博主榜单同步（lib/flj-sync.ts）。
     "https://flj.info/*",
+    // 额外榜单源（二开）。
+    "https://img.boomboom.nyc.mn/*",
+    "https://www.nsfw.pet/*",
   ]);
   assert.equal(manifest.optional_host_permissions, undefined);
 });

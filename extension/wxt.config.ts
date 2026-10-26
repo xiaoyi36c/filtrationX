@@ -58,6 +58,9 @@ export default defineConfig({
             "https://api.github.com/*",
             // flj.info（福利鉴，二开）：博主榜单同步（lib/flj-sync.ts）。
             "https://flj.info/*",
+            // 额外榜单源（二开）。
+            "https://img.boomboom.nyc.mn/*",
+            "https://www.nsfw.pet/*",
           ],
         }
       : browser === "safari"
@@ -68,6 +71,8 @@ export default defineConfig({
               "https://github.com/*",
               "https://api.github.com/*",
               "https://flj.info/*",
+              "https://img.boomboom.nyc.mn/*",
+              "https://www.nsfw.pet/*",
             ],
             // Safari requires packaged resources fetched by a content script
             // to be explicitly exposed. This bundled snapshot is only the
@@ -87,6 +92,8 @@ export default defineConfig({
               "https://github.com/*",
               "https://api.github.com/*",
               "https://flj.info/*",
+              "https://img.boomboom.nyc.mn/*",
+              "https://www.nsfw.pet/*",
             ],
           }),
     action: { default_title: "filtrationX" },

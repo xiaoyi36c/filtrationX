@@ -1,7 +1,13 @@
 // flj.info（福利鉴）榜单解析 + 关注队列构建（lib/flj-sync.ts）。
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { buildFollowQueue, mergeCategoryResults, parseRankingsPayload } from "../lib/flj-sync";
+import {
+  buildFollowQueue,
+  mergeCategoryResults,
+  parseBoomboomArchive,
+  parseNsfwPetPage,
+  parseRankingsPayload,
+} from "../lib/flj-sync";
 
 const SAMPLE = {
   items: [
@@ -83,6 +89,54 @@ test("buildFollowQueue：默认排除负面标签，max 截断", () => {
   // max 截断
   const q3 = buildFollowQueue(parsed, { skipNegative: false, max: 1 });
   assert.equal(q3.length, 1);
+});
+
+test("parseBoomboomArchive：handle/name/粉丝/相对头像拼接", () => {
+  const out = parseBoomboomArchive([
+    {
+      id: "1090649930031456257",
+      screen_name: "Anaimiya",
+      name: "Naimi奶咪",
+      avatar_url: "/api/media?key=avatars%2FAnaimiya_400x400.jpg",
+      followers_count: 4327960,
+      verified: 1,
+      is_suspended: 0,
+    },
+    { screen_name: "bad handle!" },
+    null,
+  ]);
+  assert.equal(out.length, 1);
+  const b = out[0]!;
+  assert.equal(b.h, "anaimiya");
+  assert.equal(b.n, "Naimi奶咪");
+  assert.equal(b.followers, 4327960);
+  assert.equal(b.avatar, "https://img.boomboom.nyc.mn/api/media?key=avatars%2FAnaimiya_400x400.jpg");
+  assert.equal(parseBoomboomArchive("nope").length, 0);
+});
+
+test("parseNsfwPetPage：data.creators + meta.has_more/total", () => {
+  const { bloggers, hasMore, total } = parseNsfwPetPage({
+    data: {
+      creators: [
+        {
+          handle: "@hi_nxxg",
+          name: "𝑵",
+          followers: 435912,
+          verified: true,
+          avatarUrl: "https://image.nsfw.pet/avatars/hi_nxxg/x.jpg",
+          tags: [],
+        },
+        { handle: "hi_nxxg" }, // 重复 handle 由 fetch 层去重，解析层照收
+      ],
+      meta: { total: 299, limit: 20, offset: 40, has_more: true },
+    },
+  });
+  assert.equal(bloggers.length, 2);
+  assert.equal(bloggers[0]?.h, "hi_nxxg"); // 去掉 @、小写
+  assert.equal(bloggers[0]?.followers, 435912);
+  assert.equal(hasMore, true);
+  assert.equal(total, 299);
+  assert.equal(parseNsfwPetPage(null).bloggers.length, 0);
 });
 
 test("mergeCategoryResults：跨分类去重、cats 记录、并集合并、按评分降序", () => {
