@@ -176,8 +176,8 @@ async function blockQueueWatchdog(): Promise<void> {
 // 化进度 + 限流熔断。区别：用户显式点「开始关注」才会跑（绝不自动关注）；
 // 已关注/找不到账号这类一次性失败只计数跳过，熔断只看限流类失败。
 let fljSyncRunning = false;
-// 最近一次同步的实时进度（flj_status 轮询用，SW 内存态即可——落库的只有
-// 每个分类完成后的快照数据本身）。
+// 最近一次同步的实时进度与逐源结果（flj_status 轮询用，SW 内存态即可——
+// 落库的只有每个分类完成后的快照数据本身）。
 let fljProgress: {
   running: boolean;
   done: number;
@@ -185,6 +185,7 @@ let fljProgress: {
   category: string | null;
   unique: number;
 } | null = null;
+let fljSources: import("../lib/flj-sync").FljSourceResult[] | null = null;
 let followQueuePumping = false;
 const FOLLOW_PUMP_INTERVAL_MS = 1800;
 const FOLLOW_PUMP_JITTER_MS = 800;
@@ -590,7 +591,7 @@ export default defineBackground(() => {
               void (async () => {
                 const { fetchAllFljCategories, getFljData, saveFljData } = await import("../lib/flj-sync");
                 try {
-                  const { bloggers } = await fetchAllFljCategories(
+                  const { bloggers, sources } = await fetchAllFljCategories(
                     (m) => console.debug("[MXGA] flj", m),
                     (p) => {
                       fljProgress = {
@@ -612,6 +613,7 @@ export default defineBackground(() => {
                     total: bloggers.length,
                     bloggers: bloggers.length ? bloggers : prev.bloggers,
                   });
+                  fljSources = sources;
                   fljProgress = {
                     running: false,
                     done: fljProgress?.totalCats ?? 0,
@@ -635,6 +637,7 @@ export default defineBackground(() => {
                 flj: await getFljData(),
                 syncing: fljSyncRunning,
                 progress: fljProgress,
+                sources: fljSources,
                 followed: [...(await getFollowedSet())],
               },
             });

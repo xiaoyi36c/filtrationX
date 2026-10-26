@@ -88,6 +88,7 @@ import {
   FLJ_EXTRA_SOURCES,
   fljCatLabel,
   type FljData,
+  type FljSourceResult,
   type FljSyncProgress,
   type FollowQueueState,
 } from "../../lib/flj-sync";
@@ -3846,6 +3847,7 @@ function FljPage() {
   const [data, setData] = useState<FljData | null>(null);
   const [syncing, setSyncing] = useState(false);
   const [prog, setProg] = useState<FljSyncProgress | null>(null);
+  const [sources, setSources] = useState<FljSourceResult[] | null>(null);
   const [followed, setFollowed] = useState<Set<string>>(new Set());
   const [q, setQ] = useState<FollowQueueState | null>(null);
   const [search, setSearch] = useState("");
@@ -3867,11 +3869,13 @@ function FljPage() {
           flj: FljData;
           syncing: boolean;
           progress: FljSyncProgress | null;
+          sources: FljSourceResult[] | null;
           followed: string[];
         };
         setData(d.flj);
         setSyncing(d.syncing);
         setProg(d.progress);
+        setSources(d.sources);
         if (Array.isArray(d.followed)) setFollowed(new Set(d.followed));
       }
       const fq = await bg({ type: "follow_queue_status" });
@@ -3985,6 +3989,28 @@ function FljPage() {
                 ? "获取分类列表…"
                 : `正在同步「${fljCatLabel(prog.category ?? "")}」（${prog.done}/${prog.totalCats}）· 已累计 ${prog.unique.toLocaleString("zh-CN")} 位`}
             </p>
+          </div>
+        )}
+        {/* 逐源结果：成功显示条数，失败必须亮出原因——否则某源没拉到用户
+            根本无从得知（Archive 榜筛出空表的教训）。 */}
+        {sources && sources.length > 0 && (
+          <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[12px]">
+            {sources.map((s) => (
+              <span
+                key={s.id}
+                className={`inline-flex items-center gap-1 rounded px-2 py-0.5 ${
+                  s.ok ? "bg-ok/10 text-ok" : "bg-danger/10 text-danger"
+                }`}
+                title={s.error}
+              >
+                {s.ok ? "✓" : "✗"} {fljCatLabel(s.id)} · {s.ok ? `${s.count.toLocaleString("zh-CN")} 条` : "失败"}
+              </span>
+            ))}
+            {sources.some((s) => !s.ok) && !syncing && (
+              <span className="text-[11px] text-fg-3">
+                失败的源多为站点权限/网络问题——重新点「同步榜单」并允许权限即可重试，其余源数据不受影响。
+              </span>
+            )}
           </div>
         )}
       </section>

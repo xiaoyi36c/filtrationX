@@ -235,13 +235,22 @@ export interface FljSyncProgress {
   snapshot: FljBlogger[];
 }
 
-/** 后台用：同步全部分类——overview 拿分类列表 → 每个分类翻页拉全 → 合并
- *  去重（cats 记录来源分类）。任一分类失败不影响其余；每完成一个分类通过
- *  onProgress 上报（含当前合并快照，供增量落库）。 */
+/** 单个数据源的同步结果（UI 逐源显示成功条数 / 失败原因）。 */
+export interface FljSourceResult {
+  id: string;
+  ok: boolean;
+  count: number;
+  error?: string;
+}
+
+/** 后台用：同步全部数据源——overview 拿福利鉴分类列表 → 每个分类翻页拉
+ *  全 → 两个额外源（boomboom / nsfw.pet）→ 合并去重。任何源失败都不打断
+ *  其余源，失败原因随 sources 返回（UI 必须展示，否则用户无从得知某源没
+ *  拉到——2026-10-26 实测：两个新源静默失败，Archive 榜筛出空表）。 */
 export async function fetchAllFljCategories(
   log = (_: string) => {},
   onProgress: (p: FljSyncProgress) => void = () => {},
-): Promise<{ bloggers: FljBlogger[]; errors: string[] }> {
+): Promise<{ bloggers: FljBlogger[]; errors: string[]; sources: FljSourceResult[] }> {
   const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
   onProgress({ phase: "overview", done: 0, totalCats: 0, category: null, unique: 0, snapshot: [] });
   const cats = await fetchFljOverview();
@@ -257,6 +266,7 @@ export async function fetchAllFljCategories(
   });
   const results: { category: string; bloggers: FljBlogger[] }[] = [];
   const errors: string[] = [];
+  const sources: FljSourceResult[] = [];
   let merged: FljBlogger[] = [];
   for (let i = 0; i < plan.length; i++) {
     const id = plan[i]!;
@@ -276,9 +286,12 @@ export async function fetchAllFljCategories(
             ? await fetchNsfwPet(log)
             : (await fetchFljRankings(id, log)).bloggers;
       results.push({ category: id, bloggers });
+      sources.push({ id, ok: true, count: bloggers.length });
     } catch (e) {
-      // 单个源失败不影响其余源
-      errors.push(`${id}：${e instanceof Error ? e.message : String(e)}`);
+      // 单个源失败不影响其余源，但必须把原因带出去给 UI 展示。
+      const msg = e instanceof Error ? e.message : String(e);
+      errors.push(`${id}：${msg}`);
+      sources.push({ id, ok: false, count: 0, error: msg });
     }
     merged = mergeCategoryResults(results);
     onProgress({
@@ -289,10 +302,10 @@ export async function fetchAllFljCategories(
       unique: merged.length,
       snapshot: merged,
     });
-    log(`分类 ${id}：+${results[results.length - 1]?.bloggers.length ?? 0} 条（累计去重 ${merged.length}）`);
+    log(`分类 ${id}：+${sources[sources.length - 1]?.count ?? 0} 条（累计去重 ${merged.length}）`);
     await sleep(FLJ_PAGE_DELAY_MS + Math.floor(Math.random() * FLJ_PAGE_JITTER_MS));
   }
-  return { bloggers: merged, errors };
+  return { bloggers: merged, errors, sources };
 }
 
 // ---- 额外数据源 ----
