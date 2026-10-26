@@ -71,8 +71,8 @@ _Nothing yet._
   GraphQL 核实识别 follow_request_sent，follow 返回错误码 160（already
   requested to follow）直接按成功处理（仅 follow；block/mute 语义不变）。
   关注执行已关注账号不再被「关注白名单」保护机制误跳过；节奏放宽为
-  关注成功 10s/个（2s/个曾触发 X 限流），无写操作的跳过类结果（已关注/
-  不存在/自己）不等待直接下一条。
+  关注成功 20s/个、每 10 个休整 2 分钟（实测 X 突发额度约 2.5 分钟 14 次
+  调用），无写操作的跳过类结果（已关注/不存在/自己）不等待直接下一条。
 
 ## [0.2.2] - 2026-10-25 (filtrationX fork)
 

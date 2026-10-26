@@ -187,11 +187,13 @@ let fljProgress: {
 } | null = null;
 let fljSources: import("../lib/flj-sync").FljSourceResult[] | null = null;
 let followQueuePumping = false;
-// 2026-10-27 提速反馈：2s/个触发 X 限流（Sorry, you are rate limited）。
-// 关注成功后等 10s 再下一个；「已关注/不存在」这类没有实际写操作的跳过
-// 不等待（见泵内 lastOutcome）。
-const FOLLOW_PUMP_INTERVAL_MS = 10_000;
+// 2026-10-27 用户要求：20s/个；每成功关注 10 个休整 2 分钟再继续（实测 X
+// 对关注接口的突发额度约 2.5 分钟 14 次调用）。「已关注/不存在」这类没有
+// 实际写操作的跳过不等待（见泵内 outcome）。
+const FOLLOW_PUMP_INTERVAL_MS = 20_000;
 const FOLLOW_PUMP_JITTER_MS = 2_000;
+const FOLLOW_PAUSE_EVERY = 10;
+const FOLLOW_PAUSE_MS = 120_000;
 const FOLLOW_MAX_FAIL_STREAK = 5;
 // 连续非限流失败（多为「已关注」403，也可能是 ct0 过期——后者 retryable=false
 // 触发不了限流熔断）的熔断线：到线就停，别让登录态失效时把队列全程空跑。
@@ -212,12 +214,36 @@ function pushFollowLog(
   q.log = [{ t: Date.now(), ...e }, ...(q.log ?? [])].slice(0, FOLLOW_LOG_MAX);
 }
 
+/** 分块休整：每 5s 把剩余时间写进 lastError（UI 2s 轮询可见倒计时），并碰
+ *  一次 storage 重置 MV3 SW 空闲计时器。返回 false = 用户点了停止。 */
+async function followPacedWait(msTotal: number, label: (leftMs: number) => string): Promise<boolean> {
+  const { getFollowQueue, saveFollowQueue } = await import("../lib/flj-sync");
+  let left = Math.min(msTotal, 600_000);
+  while (left > 0) {
+    const cur = await getFollowQueue();
+    if (!cur.running) return false;
+    cur.lastError = label(left);
+    await saveFollowQueue(cur);
+    try {
+      await chrome.storage.local.get("xss:follow-queue:v1");
+    } catch {
+      /* 非致命 */
+    }
+    const slept = Math.min(5_000, left);
+    await blockQueueSleep(slept);
+    left -= slept;
+  }
+  return true;
+}
+
 async function pumpFollowQueue(): Promise<void> {
   if (followQueuePumping) return;
   followQueuePumping = true;
   try {
     let failStreak = 0;
     let deadStreak = 0;
+    // 本轮休整周期内已成功关注的个数（10 个一休整）。
+    let successRound = 0;
     for (;;) {
       const { getFollowQueue, saveFollowQueue } = await import("../lib/flj-sync");
       const { BLOCK_QUEUE_WORKER_KEY } = await import("../lib/block-queue");
@@ -300,6 +326,7 @@ async function pumpFollowQueue(): Promise<void> {
           note: res.ok ? (res.reason ?? "关注成功") : "跳过（目标是自己）",
         });
         // 成功关注 → 记入本机已关注名单（UI 圆环/标记/去重用）。
+        if (res.ok) successRound++;
         if (res.ok && item?.h) {
           try {
             const { addFollowed } = await import("../lib/flj-sync");
@@ -429,39 +456,30 @@ async function pumpFollowQueue(): Promise<void> {
         return;
       }
       await saveFollowQueue(q);
-      // 429/5xx 且确认是真限流（非「已关注/不存在」的跳过类）后，x-action 已
-      // 记了退避（429 默认 45s）：与其让下一个 exec 在 content script 里静默
-      // 等冷却（UI 像冻住，MV3 SW 还可能被空闲回收），不如在泵里分块等完——
-      // 每 5s 写一次 lastError 倒计时（UI 2s 轮询可见）并碰一次 storage 重置
-      // SW 空闲计时器。用户点「停止」随时退出。
-      const backoffMs =
-        outcome === "fail" && res.retryable
-          ? Math.max(res.retryAfterMs ?? 0, res.status === 429 ? 45_000 : 8_000)
-          : 0;
-      if (backoffMs > 0) {
-        let left = Math.min(backoffMs, 600_000); // retry-after 离谱值兜底
-        while (left > 0) {
-          const cur = await getFollowQueue();
-          if (!cur.running) break;
-          cur.lastError = `限流冷却中，约 ${Math.ceil(left / 1000)}s 后自动继续…`;
-          await saveFollowQueue(cur);
-          try {
-            await chrome.storage.local.get("xss:follow-queue:v1");
-          } catch {
-            /* 非致命 */
-          }
-          const slept = Math.min(5_000, left);
-          await blockQueueSleep(slept);
-          left -= slept;
-        }
-        if (left > 0) return; // 用户已停止
-      }
-      // 关注成功等 10s 再下一个（X 风控）；跳过类（已关注/不存在/自己）无
-      // 写操作，直接继续下一条。
-      if (outcome !== "skip") {
-        await blockQueueSleep(
-          FOLLOW_PUMP_INTERVAL_MS + Math.floor(Math.random() * FOLLOW_PUMP_JITTER_MS),
+      // 等待策略（跳过类结果不等待，直接下一条）：
+      //   真限流（429/5xx）→ x-action 已记退避，泵里分块等完（默认 45s）；
+      //   第 FOLLOW_PAUSE_EVERY 个关注成功 → 休整 2 分钟再继续；
+      //   其它 → 正常 20s 间隔。
+      if (outcome === "fail" && res.retryable) {
+        const go = await followPacedWait(
+          Math.max(res.retryAfterMs ?? 0, res.status === 429 ? 45_000 : 8_000),
+          (l) => `限流冷却中，约 ${Math.ceil(l / 1000)}s 后自动继续…`,
         );
+        if (!go) return; // 用户已停止
+      } else if (outcome !== "skip") {
+        if (successRound >= FOLLOW_PAUSE_EVERY) {
+          const go = await followPacedWait(FOLLOW_PAUSE_MS, (l) => {
+            const m = Math.floor(l / 60_000);
+            const s = Math.ceil((l % 60_000) / 1000) % 60;
+            return `已连续关注 ${FOLLOW_PAUSE_EVERY} 个，休整 ${m}:${String(s).padStart(2, "0")} 后继续…`;
+          });
+          successRound = 0;
+          if (!go) return; // 用户已停止
+        } else {
+          await blockQueueSleep(
+            FOLLOW_PUMP_INTERVAL_MS + Math.floor(Math.random() * FOLLOW_PUMP_JITTER_MS),
+          );
+        }
       }
     }
   } finally {
