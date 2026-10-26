@@ -56,10 +56,11 @@ export const FLJ_CATEGORY_ZH: Record<string, string> = {
 };
 /** overview 拉不到时的兜底分类表。 */
 const FLJ_FALLBACK_CATEGORIES = Object.keys(FLJ_CATEGORY_ZH);
-/** 额外数据源（与福利鉴分类并列展示）。 */
+/** 额外数据源（与福利鉴分类并列展示）。boomboom = 女菩萨
+ *  （nv-pu-sa.pages.dev）的 archive.json 接口。 */
 export const FLJ_EXTRA_SOURCES: { id: string; label: string }[] = [
-  { id: "boomboom", label: "Archive 榜" },
-  { id: "nsfw", label: "NSFW.pet" },
+  { id: "boomboom", label: "女菩萨" },
+  { id: "nsfw", label: "NSFW 导航" },
 ];
 /** 全部 cats 值的中文名（含福利鉴分类与额外数据源）。 */
 export function fljCatLabel(id: string): string {

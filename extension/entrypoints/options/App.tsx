@@ -3981,7 +3981,7 @@ function FljPage() {
           <span className="text-[11px] uppercase tracking-[0.12em] text-fg-3">公开榜单</span>
         </div>
         <p className="mb-3 text-[12px] leading-relaxed text-fg-3">
-          从福利鉴、Archive 榜、NSFW.pet 三个公开榜单拉取博主名单，合并去重后仅存本机，不访问你的 X 账号。
+          从福利鉴、女菩萨、NSFW 导航三个公开榜单拉取博主名单，合并去重后仅存本机，不访问你的 X 账号。
           勾选要同步的网站（可与既有名单增量合并）：
         </p>
         <div className="mb-3 flex flex-wrap items-center gap-x-5 gap-y-1.5 text-[12px]">
@@ -4007,14 +4007,14 @@ function FljPage() {
               checked={selSources.boomboom}
               onChange={(e) => setSelSources((s) => ({ ...s, boomboom: e.target.checked }))}
             />
-            Archive 榜
+            女菩萨
             <a
-              href="https://img.boomboom.nyc.mn/data/archive.json"
+              href="https://nv-pu-sa.pages.dev/"
               target="_blank"
               rel="noopener"
               className="text-fg-3 underline-offset-2 hover:text-accent hover:underline"
             >
-              img.boomboom.nyc.mn
+              nv-pu-sa.pages.dev
             </a>
           </label>
           <label className="flex cursor-pointer items-center gap-1.5">
@@ -4023,7 +4023,7 @@ function FljPage() {
               checked={selSources.nsfw}
               onChange={(e) => setSelSources((s) => ({ ...s, nsfw: e.target.checked }))}
             />
-            NSFW.pet
+            NSFW 导航
             <a
               href="https://www.nsfw.pet"
               target="_blank"
@@ -4322,9 +4322,9 @@ function FljPage() {
                             }`}
                             title={
                               c === "boomboom"
-                                ? "来自 boomboom 归档榜"
+                                ? "来自女菩萨（nv-pu-sa.pages.dev）"
                                 : c === "nsfw"
-                                  ? "来自 NSFW.pet"
+                                  ? "来自 NSFW 导航（www.nsfw.pet）"
                                   : "来自福利鉴榜单"
                             }
                           >
