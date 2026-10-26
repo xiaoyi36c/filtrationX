@@ -420,6 +420,15 @@ const SYSTEM = `You classify X (Twitter) accounts ONLY for spam / porn-advertisi
   and unrelated to the thread topic, is a porn/spam amplifier bot even with NO
   link and NO platform name → label porn_bot or spam, confidence >= 0.85.
   Repetition of the same template or same @target across replies corroborates.
+- POSTING RATE: postsPerDay is the LIFETIME-AVERAGE posts/day (total posts ÷
+  account age; absent when either fact is unknown). Very high sustained
+  volume — roughly ≥30/day averaged over months — from an account whose
+  content is AI-generated filler, crypto/AI/web3 engagement farming, or
+  template replies to strangers is a strong spam/"aifarm" signal (no human
+  keeps that cadence with real engagement). A high rate alone is NOT spam:
+  legitimate heavy posters exist (news bots with disclosure, livebloggers);
+  treat rate as corroboration that scales the weight of content signals,
+  never as a standalone verdict.
 - REPETITION MEANS SEPARATE POSTS: recentTweets are OTHER posts by the
   account. Only count "repeats the same template" when two or more DISTINCT
   entries there (or entries plus the triggeringComment) share the template.
@@ -549,11 +558,19 @@ function bloomToBase64(bits: Uint8Array): string {
 }
 
 function userPrompt(s: Signals): string {
+  // Lifetime-average posting rate from two facts X already exposes in the
+  // page (total posts + account age). No new scraping; legacy clients that
+  // send both fields get it for free. Rounded; only meaningful at ≥1.
+  const postsPerDay =
+    s.statusesCount !== undefined && s.accountAgeDays !== undefined && s.accountAgeDays >= 1
+      ? Math.round(s.statusesCount / s.accountAgeDays)
+      : undefined;
   const meta = [
     s.accountAgeDays !== undefined ? `accountAgeDays=${s.accountAgeDays}` : "",
     s.followersCount !== undefined ? `followers=${s.followersCount}` : "",
     s.followingCount !== undefined ? `following=${s.followingCount}` : "",
     s.statusesCount !== undefined ? `posts=${s.statusesCount}` : "",
+    ...(postsPerDay !== undefined ? [`postsPerDay≈${postsPerDay} (lifetime average)`] : []),
     s.mediaCount !== undefined ? `media=${s.mediaCount}` : "",
     s.favouritesCount !== undefined ? `likesGiven=${s.favouritesCount}` : "",
     s.isVerified ? "verified=true" : "",
