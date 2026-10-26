@@ -176,6 +176,15 @@ async function blockQueueWatchdog(): Promise<void> {
 // 化进度 + 限流熔断。区别：用户显式点「开始关注」才会跑（绝不自动关注）；
 // 已关注/找不到账号这类一次性失败只计数跳过，熔断只看限流类失败。
 let fljSyncRunning = false;
+// 最近一次同步的实时进度（flj_status 轮询用，SW 内存态即可——落库的只有
+// 每个分类完成后的快照数据本身）。
+let fljProgress: {
+  running: boolean;
+  done: number;
+  totalCats: number;
+  category: string | null;
+  unique: number;
+} | null = null;
 let followQueuePumping = false;
 const FOLLOW_PUMP_INTERVAL_MS = 1800;
 const FOLLOW_PUMP_JITTER_MS = 800;
@@ -571,8 +580,21 @@ export default defineBackground(() => {
               void (async () => {
                 const { fetchAllFljCategories, getFljData, saveFljData } = await import("../lib/flj-sync");
                 try {
-                  const { bloggers } = await fetchAllFljCategories((m) =>
-                    console.debug("[MXGA] flj", m),
+                  const { bloggers } = await fetchAllFljCategories(
+                    (m) => console.debug("[MXGA] flj", m),
+                    (p) => {
+                      fljProgress = {
+                        running: true,
+                        done: p.done,
+                        totalCats: p.totalCats,
+                        category: p.category,
+                        unique: p.unique,
+                      };
+                      // 每完成一个分类就增量落库：UI 的表格和计数随同步实时增长。
+                      if (p.snapshot.length) {
+                        void saveFljData({ syncedAt: null, total: p.unique, bloggers: p.snapshot });
+                      }
+                    },
                   );
                   const prev = await getFljData();
                   await saveFljData({
@@ -580,8 +602,16 @@ export default defineBackground(() => {
                     total: bloggers.length,
                     bloggers: bloggers.length ? bloggers : prev.bloggers,
                   });
+                  fljProgress = {
+                    running: false,
+                    done: fljProgress?.totalCats ?? 0,
+                    totalCats: fljProgress?.totalCats ?? 0,
+                    category: null,
+                    unique: bloggers.length,
+                  };
                 } catch (e) {
                   console.warn("[MXGA] flj sync failed", e);
+                  fljProgress = null;
                 } finally {
                   fljSyncRunning = false;
                 }
@@ -589,7 +619,10 @@ export default defineBackground(() => {
             }
           } else if (msg.type === "flj_status") {
             const { getFljData } = await import("../lib/flj-sync");
-            sendResponse({ ok: true, data: { flj: await getFljData(), syncing: fljSyncRunning } });
+            sendResponse({
+              ok: true,
+              data: { flj: await getFljData(), syncing: fljSyncRunning, progress: fljProgress },
+            });
           } else if (msg.type === "follow_queue_start") {
             const { getFljData, buildFollowQueue, getFollowQueue, saveFollowQueue } = await import(
               "../lib/flj-sync"

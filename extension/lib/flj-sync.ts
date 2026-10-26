@@ -194,9 +194,13 @@ export function mergeCategoryResults(
 /** 榜单分类总览（/api/rankings/overview）：取全部分类 id；失败用兜底表。 */
 export async function fetchFljOverview(): Promise<{ id: string }[]> {
   try {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 15_000);
     const r = await fetch(`${FLJ_ORIGIN}/api/rankings/overview`, {
       headers: { accept: "application/json" },
+      signal: ctrl.signal,
     });
+    clearTimeout(timer);
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
     const arr = (await r.json()) as unknown;
     if (Array.isArray(arr)) {
@@ -211,23 +215,64 @@ export async function fetchFljOverview(): Promise<{ id: string }[]> {
   return FLJ_FALLBACK_CATEGORIES.map((id) => ({ id }));
 }
 
+/** 同步进度（UI 实时展示用）：phase=overview 拉分类表；categories 逐个拉
+ *  全；snapshot 为目前已合并的去重名单（后台据此增量落库）。 */
+export interface FljSyncProgress {
+  phase: "overview" | "categories" | "done" | "error";
+  done: number;
+  totalCats: number;
+  category: string | null;
+  unique: number;
+  snapshot: FljBlogger[];
+}
+
 /** 后台用：同步全部分类——overview 拿分类列表 → 每个分类翻页拉全 → 合并
- *  去重（cats 记录来源分类）。任一分类失败不影响其余。 */
+ *  去重（cats 记录来源分类）。任一分类失败不影响其余；每完成一个分类通过
+ *  onProgress 上报（含当前合并快照，供增量落库）。 */
 export async function fetchAllFljCategories(
   log = (_: string) => {},
+  onProgress: (p: FljSyncProgress) => void = () => {},
 ): Promise<{ bloggers: FljBlogger[]; errors: string[] }> {
   const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+  onProgress({ phase: "overview", done: 0, totalCats: 0, category: null, unique: 0, snapshot: [] });
   const cats = await fetchFljOverview();
+  onProgress({
+    phase: "categories",
+    done: 0,
+    totalCats: cats.length,
+    category: null,
+    unique: 0,
+    snapshot: [],
+  });
   const results: { category: string; bloggers: FljBlogger[] }[] = [];
   const errors: string[] = [];
-  for (const { id } of cats) {
+  let merged: FljBlogger[] = [];
+  for (let i = 0; i < cats.length; i++) {
+    const id = cats[i]!.id;
+    onProgress({
+      phase: "categories",
+      done: i,
+      totalCats: cats.length,
+      category: id,
+      unique: merged.length,
+      snapshot: merged,
+    });
     const r = await fetchFljRankings(id, log);
     results.push({ category: id, bloggers: r.bloggers });
     errors.push(...r.errors);
-    log(`分类 ${id}：${r.bloggers.length} 条`);
+    merged = mergeCategoryResults(results);
+    onProgress({
+      phase: "categories",
+      done: i + 1,
+      totalCats: cats.length,
+      category: id,
+      unique: merged.length,
+      snapshot: merged,
+    });
+    log(`分类 ${id}：${r.bloggers.length} 条（累计去重 ${merged.length}）`);
     await sleep(FLJ_PAGE_DELAY_MS + Math.floor(Math.random() * FLJ_PAGE_JITTER_MS));
   }
-  return { bloggers: mergeCategoryResults(results), errors };
+  return { bloggers: merged, errors };
 }
 
 /** 后台用：拉取单个榜单分类的全部分页（顺序、带间隔），失败页跳过并继续。 */
@@ -244,9 +289,13 @@ export async function fetchFljRankings(
   for (let page = 1; page <= FLJ_MAX_PAGES; page++) {
     let payload: unknown = null;
     try {
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 15_000);
       const r = await fetch(`${FLJ_ORIGIN}/api/rankings?category=${encodeURIComponent(category)}&page=${page}`, {
         headers: { accept: "application/json" },
+        signal: ctrl.signal,
       });
+      clearTimeout(timer);
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       payload = await r.json();
     } catch (e) {

@@ -83,7 +83,12 @@ import {
   tweetUrl,
 } from "../../lib/store";
 import { clearDetectionCache } from "../../lib/cache";
-import { FLJ_CATEGORY_ZH, type FljData, type FollowQueueState } from "../../lib/flj-sync";
+import {
+  FLJ_CATEGORY_ZH,
+  type FljData,
+  type FljSyncProgress,
+  type FollowQueueState,
+} from "../../lib/flj-sync";
 import type { Label } from "../../lib/types";
 
 const REPO = BRAND.repo;
@@ -3837,6 +3842,7 @@ function FljPage() {
     });
   const [data, setData] = useState<FljData | null>(null);
   const [syncing, setSyncing] = useState(false);
+  const [prog, setProg] = useState<FljSyncProgress | null>(null);
   const [q, setQ] = useState<FollowQueueState | null>(null);
   const [search, setSearch] = useState("");
   const [cat, setCat] = useState("all");
@@ -3853,9 +3859,10 @@ function FljPage() {
     const tick = async () => {
       const s = await bg({ type: "flj_status" });
       if (alive && s?.ok) {
-        const d = s.data as { flj: FljData; syncing: boolean };
+        const d = s.data as { flj: FljData; syncing: boolean; progress: FljSyncProgress | null };
         setData(d.flj);
         setSyncing(d.syncing);
+        setProg(d.progress);
       }
       const fq = await bg({ type: "follow_queue_status" });
       if (alive && fq?.ok) setQ(fq.data as unknown as FollowQueueState);
@@ -3915,100 +3922,155 @@ function FljPage() {
   };
 
   const pending = Math.max(0, (q?.items.length ?? 0) - (q?.cursor ?? 0));
+  const syncPct = prog
+    ? prog.phase === "overview"
+      ? 12
+      : prog.totalCats
+        ? Math.round((prog.done / prog.totalCats) * 100)
+        : 0
+    : 0;
   return (
     <Page
       title={t("page.flj.title")}
       sub={t("page.flj.sub")}
     >
-      <div className="mb-4 flex flex-wrap items-center gap-3">
-        <Btn tier="primary" onClick={() => void sync()} disabled={syncing}>
-          {syncing ? t("flj.syncing") : t("flj.sync")}
-        </Btn>
-        {data?.syncedAt && (
-          <span className="text-[12px] text-fg-3">
-            {t("flj.syncedAt")} {new Date(data.syncedAt).toLocaleString()} · {bloggers.length.toLocaleString("zh-CN")}{" "}
-            {t("flj.count")}
-          </span>
+      {/* 卡片一：榜单同步（获取数据）——只读 flj.info，不碰 X 账号 */}
+      <section className="mb-4 rounded-lg border border-border p-5">
+        <div className="mb-1 flex items-center justify-between gap-3">
+          <h3 className="text-[13px] font-semibold text-fg">榜单同步 · 获取数据</h3>
+          <span className="text-[11px] uppercase tracking-[0.12em] text-fg-3">flj.info</span>
+        </div>
+        <p className="mb-3 text-[12px] leading-relaxed text-fg-3">
+          拉取 flj.info 的 6 个分类榜单（最新爆料 / 最新检索 / 评分最高 / 风俗 / 门槛 / AV
+          女优），合并去重后仅存本机。这一步只读公开网页数据，不会访问你的 X 账号。
+        </p>
+        <div className="flex flex-wrap items-center gap-3">
+          <Btn tier="primary" onClick={() => void sync()} disabled={syncing}>
+            {syncing ? t("flj.syncing") : data?.syncedAt ? "重新同步" : t("flj.sync")}
+          </Btn>
+          {data?.syncedAt && !syncing && (
+            <span className="text-[12px] text-fg-3">
+              {t("flj.syncedAt")} {new Date(data.syncedAt).toLocaleString()} · 已有{" "}
+              {bloggers.length.toLocaleString("zh-CN")} {t("flj.count")}
+            </span>
+          )}
+          {msg && <span className={`text-[12px] ${msg.ok ? "text-ok" : "text-danger"}`}>{msg.text}</span>}
+        </div>
+        {syncing && prog && (
+          <div className="mt-3">
+            <div className="h-1.5 w-full max-w-[420px] overflow-hidden rounded bg-border-2">
+              <div
+                className="h-full bg-accent transition-all duration-500"
+                style={{ width: `${Math.max(syncPct, 8)}%` }}
+              />
+            </div>
+            <p className="mt-1.5 text-[12px] text-fg-2">
+              {prog.phase === "overview"
+                ? "获取分类列表…"
+                : `正在同步「${FLJ_CATEGORY_ZH[prog.category ?? ""] ?? prog.category ?? ""}」（${prog.done}/${prog.totalCats}）· 已累计 ${prog.unique.toLocaleString("zh-CN")} 位`}
+            </p>
+          </div>
         )}
-        {msg && <span className={`text-[12px] ${msg.ok ? "text-ok" : "text-danger"}`}>{msg.text}</span>}
-      </div>
+      </section>
+
+      {/* 卡片二：一键关注（执行动作）——走你自己的 X 登录态 */}
+      <section className="mb-8 rounded-lg border border-border p-5">
+        <div className="mb-1 flex items-center justify-between gap-3">
+          <h3 className="text-[13px] font-semibold text-fg">一键关注 · 执行动作</h3>
+          <span className="text-[11px] uppercase tracking-[0.12em] text-fg-3">x.com</span>
+        </div>
+        <p className="mb-3 text-[12px] leading-relaxed text-fg-3">
+          按下方筛选把博主加入关注队列，用你自己的 X 登录态逐个关注（约 2-3 秒/个，可随时停止）。{" "}
+          {t("flj.needTab")}
+        </p>
+        {bloggers.length === 0 ? (
+          <p className="text-[12px] text-fg-3">先完成上面的榜单同步，才能构建关注队列。</p>
+        ) : (
+          <>
+            <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-[12px] text-fg-2">
+              <label className="flex cursor-pointer items-center gap-1.5">
+                <input
+                  type="checkbox"
+                  checked={skipNegative}
+                  onChange={(e) => setSkipNegative(e.target.checked)}
+                />
+                {t("flj.skipNegative")}
+              </label>
+              <label className="flex cursor-pointer items-center gap-1.5">
+                <input
+                  type="checkbox"
+                  checked={excludeFushi}
+                  onChange={(e) => setExcludeFushi(e.target.checked)}
+                />
+                {t("flj.excludeFushi")}
+              </label>
+              <label className="flex items-center gap-1.5">
+                榜单
+                <select
+                  value={cat}
+                  onChange={(e) => {
+                    setCat(e.target.value);
+                    setLimit(200);
+                  }}
+                  className="rounded-md border border-border-2 bg-transparent px-2 py-1 text-[12px]"
+                >
+                  <option value="all">全部</option>
+                  {Object.entries(FLJ_CATEGORY_ZH).map(([id, label]) => (
+                    <option key={id} value={id}>
+                      {label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="flex items-center gap-1.5">
+                {t("flj.batch")}
+                <select
+                  value={batch}
+                  onChange={(e) => setBatch(Number(e.target.value))}
+                  className="rounded-md border border-border-2 bg-transparent px-2 py-1 text-[12px]"
+                >
+                  <option value={20}>20</option>
+                  <option value={50}>50</option>
+                  <option value={100}>100</option>
+                  <option value={10000}>全部</option>
+                </select>
+              </label>
+              <input
+                value={search}
+                onChange={(e) => {
+                  setSearch(e.target.value);
+                  setLimit(200);
+                }}
+                placeholder="搜索 handle / 昵称"
+                className="w-[200px] rounded-md border border-border-2 bg-transparent px-3 py-1.5 text-[12px] outline-none transition focus:border-accent"
+              />
+              {q?.running ? (
+                <Btn tier="danger" onClick={() => void stop()}>
+                  {t("flj.stop")}
+                </Btn>
+              ) : (
+                <Btn tier="primary" onClick={() => setConfirmOpen(true)} disabled={!rows.length}>
+                  {t("flj.follow")}（当前筛选 {rows.length.toLocaleString("zh-CN")} 人）
+                </Btn>
+              )}
+            </div>
+
+            {q && (q.running || q.cursor > 0) && (
+              <p className="mt-3 text-[12px] text-fg-2">
+                {t("flj.progress")}：{q.done.toLocaleString("zh-CN")} 已完成 /{" "}
+                {q.failed.toLocaleString("zh-CN")} 失败 / 剩余 {pending.toLocaleString("zh-CN")}
+                {q.lastError ? ` · ${q.lastError}` : ""}
+                {q.running ? " · 执行中" : ""}
+              </p>
+            )}
+          </>
+        )}
+      </section>
 
       {bloggers.length === 0 ? (
         <p className="py-10 text-center text-[13px] text-fg-3">{t("flj.none")}</p>
       ) : (
         <>
-          <div className="mb-4 flex flex-wrap items-center gap-x-5 gap-y-2 text-[12px] text-fg-2">
-            <label className="flex cursor-pointer items-center gap-1.5">
-              <input type="checkbox" checked={skipNegative} onChange={(e) => setSkipNegative(e.target.checked)} />
-              {t("flj.skipNegative")}
-            </label>
-            <label className="flex cursor-pointer items-center gap-1.5">
-              <input type="checkbox" checked={excludeFushi} onChange={(e) => setExcludeFushi(e.target.checked)} />
-              {t("flj.excludeFushi")}
-            </label>
-            <label className="flex items-center gap-1.5">
-              榜单
-              <select
-                value={cat}
-                onChange={(e) => {
-                  setCat(e.target.value);
-                  setLimit(200);
-                }}
-                className="rounded-md border border-border-2 bg-transparent px-2 py-1 text-[12px]"
-              >
-                <option value="all">全部</option>
-                {Object.entries(FLJ_CATEGORY_ZH).map(([id, label]) => (
-                  <option key={id} value={id}>
-                    {label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="flex items-center gap-1.5">
-              {t("flj.batch")}
-              <select
-                value={batch}
-                onChange={(e) => setBatch(Number(e.target.value))}
-                className="rounded-md border border-border-2 bg-transparent px-2 py-1 text-[12px]"
-              >
-                <option value={20}>20</option>
-                <option value={50}>50</option>
-                <option value={100}>100</option>
-                <option value={10000}>全部</option>
-              </select>
-            </label>
-            <input
-              value={search}
-              onChange={(e) => {
-                setSearch(e.target.value);
-                setLimit(200);
-              }}
-              placeholder="搜索 handle / 昵称"
-              className="w-[200px] rounded-md border border-border-2 bg-transparent px-3 py-1.5 text-[12px] outline-none transition focus:border-accent"
-            />
-            {q?.running ? (
-              <Btn tier="danger" onClick={() => void stop()}>
-                {t("flj.stop")}
-              </Btn>
-            ) : (
-              <Btn tier="primary" onClick={() => setConfirmOpen(true)} disabled={!rows.length}>
-                {t("flj.follow")}
-              </Btn>
-            )}
-          </div>
-
-          {q && (q.running || q.cursor > 0) && (
-            <p className="mb-4 text-[12px] text-fg-2">
-              {t("flj.progress")}：{q.done.toLocaleString("zh-CN")} 已完成 / {q.failed.toLocaleString("zh-CN")} 失败 /
-              剩余 {pending.toLocaleString("zh-CN")}
-              {q.lastError ? ` · ${q.lastError}` : ""}
-              {!q.running && !navigator.onLine ? "" : q.running ? " · 执行中（需要打开的 x.com 标签页）" : ""}
-            </p>
-          )}
-          {!q?.running && (
-            <p className="mb-4 text-[12px] text-fg-3">{t("flj.needTab")}</p>
-          )}
-
           <div className="overflow-x-auto rounded-lg border border-border">
             <table className="w-full min-w-[720px] border-collapse text-[13px]">
               <thead className="bg-card">
