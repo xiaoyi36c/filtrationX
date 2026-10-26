@@ -31,6 +31,7 @@ import { readBridgeUser } from "../lib/x-user-bridge";
 import { LIST_KEY, WL_KEY } from "../lib/list-sync";
 import { type IndexEntry, isWhitelisted, lookupLocal, warmLocalIndex } from "../lib/local-index";
 import { matchLocalRules, warmRuleConfig } from "../lib/local-rules";
+import { matchAifarmHeuristic } from "../lib/aifarm-heuristic";
 import {
   LOCAL_WL_KEY,
   addLocalWhitelist,
@@ -1507,6 +1508,35 @@ export default defineContentScript({
               },
               category: ruleHit.category,
               tier: "auto", // rule hits are auto tier — reply-scope gated
+              source: "community",
+              updatedAt: new Date().toISOString(),
+            },
+            "rule",
+            ctx,
+          );
+          return;
+        }
+
+        // 4.6 Built-in aifarm heuristic (「AI 币圈蓝标」): young account +
+        //     inhuman posting volume + engagement-farming bio phrases. Same
+        //     render path as rule hits, so the per-category policy (default
+        //     badge-only) and reply-scope gating apply unchanged.
+        const aifarm = matchAifarmHeuristic(sig);
+        if (aifarm) {
+          renderLocalIndex(
+            anchor,
+            key,
+            sig,
+            {
+              userId: sig.userId ?? "",
+              handle: sig.handle,
+              verdict: {
+                label: "spam",
+                confidence: 0.9,
+                reasons: aifarm,
+              },
+              category: "aifarm",
+              tier: "auto",
               source: "community",
               updatedAt: new Date().toISOString(),
             },
