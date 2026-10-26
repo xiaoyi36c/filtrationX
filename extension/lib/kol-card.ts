@@ -134,8 +134,8 @@ interface KolStrings {
   replies: string;
   preciseN: (n: number) => string;
   tiers: Record<TrustResult["tier"], string>;
-  /** 可信分四个子维度的短标签（分项透明度）。 */
-  parts: { age: string; network: string; engagement: string; original: string };
+  /** 可信分五个子维度的短标签（分项透明度）。 */
+  parts: { age: string; network: string; engagement: string; original: string; volume: string };
   footer: string;
   sampledN: (n: number) => string;
   offline: string;
@@ -163,7 +163,7 @@ const I18N: Record<KolLocale, KolStrings> = {
     replies: "评",
     preciseN: (n) => `（精确 ${n} 条）`,
     tiers: { safe: "靠谱", ok: "一般", warn: "存疑", risk: "高风险" },
-    parts: { age: "年龄", network: "关注网", engagement: "互动", original: "原创" },
+    parts: { age: "年龄", network: "关注网", engagement: "互动", original: "原创", volume: "发帖量" },
     footer: "档案实时",
     sampledN: (n) => ` + 采样${n}条`,
     offline: "不联网",
@@ -189,7 +189,7 @@ const I18N: Record<KolLocale, KolStrings> = {
     replies: "R",
     preciseN: (n) => ` (${n} precise)`,
     tiers: { safe: "solid", ok: "mixed", warn: "shaky", risk: "risky" },
-    parts: { age: "age", network: "graph", engagement: "engage", original: "orig." },
+    parts: { age: "age", network: "graph", engagement: "engage", original: "orig.", volume: "volume" },
     footer: "live profile",
     sampledN: (n) => ` + ${n} sampled`,
     offline: "offline",
@@ -215,7 +215,7 @@ const I18N: Record<KolLocale, KolStrings> = {
     replies: "返信",
     preciseN: (n) => `（${n}件精確）`,
     tiers: { safe: "信頼", ok: "普通", warn: "要注意", risk: "リスク" },
-    parts: { age: "年齢", network: "関係", engagement: "反応", original: "オリ" },
+    parts: { age: "年齢", network: "関係", engagement: "反応", original: "オリ", volume: "投稿量" },
     footer: "プロフ即時",
     sampledN: (n) => ` + ${n}サンプル`,
     offline: "通信なし",
@@ -350,13 +350,14 @@ function render(data: KolCardData): string {
     warn: "var(--warn)",
     risk: "var(--danger)",
   };
-  // 分项透明度：四个子维度分都亮出来，用户能看出综合分从哪来、缺什么。
+  // 分项透明度：五个子维度分都亮出来，用户能看出综合分从哪来、缺什么。
   const partsLine = data.trust
     ? [
         [t.parts.age, data.trust.parts.age],
         [t.parts.network, data.trust.parts.network],
         [t.parts.engagement, data.trust.parts.engagement],
         [t.parts.original, data.trust.parts.original],
+        [t.parts.volume, data.trust.parts.volume],
       ]
         .map(([k, v]) => `${k} ${v}`)
         .join(" · ")

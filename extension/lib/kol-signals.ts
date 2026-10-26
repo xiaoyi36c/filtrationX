@@ -302,8 +302,8 @@ export interface TrustInput {
 export interface TrustResult {
   score: number; // 0-100
   tier: TrustTier;
-  /** 四个子维度分（0-100），卡片分项透明度用（M4）：缺数据的维度 = 50。 */
-  parts: { age: number; network: number; engagement: number; original: number };
+  /** 五个子维度分（0-100），卡片分项透明度用（M4）：缺数据的维度 = 50。 */
+  parts: { age: number; network: number; engagement: number; original: number; volume: number };
 }
 
 function ageScore(d: number | undefined): number {
@@ -363,8 +363,30 @@ function originalScore(r: number | undefined): number {
   return 10;
 }
 
-/** 综合可信分：年龄 30% + 关注网络 25% + 互动形态 25% + 原创比 20%。
- *  缺数据的维度回中性 50，不奖不罚。parts 把各维度分原样带出。 */
+/** 发帖量形态：总推数 ÷ 号龄 = 日均发帖。真人长期日均很少超过 15 条；
+ *  「注册一个月刷了一两千条」（日均 30-100+）是养号脚本 / AI 内容农场的
+ *  硬指标——这类号往往内容 AI 生成、互 fo 话术拉人，最后被 X 官方停用。 */
+function volumeScore(statuses?: number, ageDays?: number): number {
+  if (
+    typeof statuses !== "number" ||
+    typeof ageDays !== "number" ||
+    !Number.isFinite(ageDays) ||
+    ageDays < 1
+  )
+    return 50;
+  const perDay = statuses / Math.max(ageDays, 1);
+  if (perDay < 15) return 80; // 正常人类节奏
+  if (perDay < 30) return 60; // 偏高频（话痨/Bot 皆有可能）
+  if (perDay < 60) return 30; // 农场常见区间
+  if (perDay < 120) return 12;
+  return 5;
+}
+
+/** 综合可信分：年龄 25% + 关注网络 20% + 互动形态 20% + 原创比 15% + 发帖量 20%。
+ *  缺数据的维度回中性 50，不奖不罚。parts 把各维度分原样带出。
+ *  另有硬性压分：新号（<90 天）日均 ≥30 条是「年轻 + 非人发帖量」的农场
+ *  特征——即便其余维度体面，综合分也压进存疑/高风险档（单靠加权均分会
+ *  被 100% 原创比、正常的互粉结构垫到「一般」，2026-10-26 实测案例）。 */
 export function trustAssessment(input: TrustInput): TrustResult {
   const age = ageScore(input.accountAgeDays);
   const network = networkScore(input.followersCount, input.followingCount);
@@ -375,7 +397,17 @@ export function trustAssessment(input: TrustInput): TrustResult {
     input.medianLikes,
   );
   const original = originalScore(input.originalRatio);
-  const score = Math.round(0.3 * age + 0.25 * network + 0.25 * engagement + 0.2 * original);
+  const volume = volumeScore(input.statusesCount, input.accountAgeDays);
+  let score = Math.round(0.25 * age + 0.2 * network + 0.2 * engagement + 0.15 * original + 0.2 * volume);
+  const ageDays = input.accountAgeDays;
+  const perDay =
+    typeof input.statusesCount === "number" && typeof ageDays === "number" && ageDays >= 1
+      ? input.statusesCount / ageDays
+      : undefined;
+  if (typeof ageDays === "number" && typeof perDay === "number") {
+    if (ageDays < 30 && perDay >= 60) score = Math.min(score, 30);
+    else if (ageDays < 90 && perDay >= 30) score = Math.min(score, 45);
+  }
   const tier: TrustTier = score >= 75 ? "safe" : score >= 55 ? "ok" : score >= 35 ? "warn" : "risk";
-  return { score, tier, parts: { age, network, engagement, original } };
+  return { score, tier, parts: { age, network, engagement, original, volume } };
 }

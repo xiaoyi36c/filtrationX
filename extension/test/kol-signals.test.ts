@@ -137,12 +137,35 @@ test("trust assessment bands: farm / like-farm / dead-engagement / solid", () =>
   // M4 transparency: per-dimension parts ride along and neutral = 50
   assert.equal(solid.parts.age, 85);
   assert.equal(solid.parts.original, 80);
+  assert.equal(solid.parts.volume, 80);
   const blank = trustAssessment({});
   assert.ok(blank.score >= 45 && blank.score <= 60, `neutral-ish, got ${blank.score}`);
   assert.equal(blank.parts.age, 50);
   assert.equal(blank.parts.network, 50);
   assert.equal(blank.parts.engagement, 50);
   assert.equal(blank.parts.original, 50);
+  assert.equal(blank.parts.volume, 50);
+  // 2026-10-26 实测案例：31 天 / 1563 条推文（日均 50）、互粉结构体面、
+  // 100% 原创比、赞粉比正常——旧算法给了 67「一般」，随后该号被 X 停用。
+  // 发帖量维度 + 新号硬性压分必须把它拖进存疑/高风险。
+  const volFarm = trustAssessment({
+    accountAgeDays: 31,
+    followersCount: 1363,
+    followingCount: 991,
+    statusesCount: 1563,
+    favouritesCount: 830,
+    originalRatio: 1,
+  });
+  assert.ok(volFarm.score < 55, `expected warn/risk, got ${volFarm.score}`);
+  assert.equal(volFarm.parts.volume, 30);
+  // 更极端：新号 + 日均 100 条 → 直接高风险
+  const hyper = trustAssessment({
+    accountAgeDays: 20,
+    followersCount: 500,
+    followingCount: 800,
+    statusesCount: 2000,
+  });
+  assert.equal(hyper.tier, "risk", `expected risk, got ${hyper.score}`);
 });
 
 test("storage roundtrip: warm reloads live entries, drops expired", async () => {
