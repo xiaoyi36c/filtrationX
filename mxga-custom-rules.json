@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updatedAt": "2026-10-25T12:08:40.266Z",
+  "updatedAt": "2026-10-26T08:37:45.806Z",
   "rules": [
     {
       "pattern": "@LindseyMan67567",
@@ -254,6 +254,11 @@
     },
     {
       "pattern": "已入住约p平台",
+      "field": "any",
+      "category": "porn"
+    },
+    {
+      "pattern": "@SOQ2_",
       "field": "any",
       "category": "porn"
     }
