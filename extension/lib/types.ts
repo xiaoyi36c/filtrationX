@@ -47,6 +47,11 @@ export interface Signals {
   accountAgeDays?: number;
   followersCount?: number;
   followingCount?: number;
+  /** Profile-surface only: how many of the account's own rendered posts on
+   *  its profile page carry a <time> within the last 24h. Bounded by what X
+   *  has virtualized into the DOM (~10-20 rows) — a floor, not a total.
+   *  Feeds the aifarm 24h-burst lane. */
+  recentPosts24h?: number;
   /** The tweet texts above are X machine-translations, not the author's own
    *  words (original unavailable in the DOM). Consumers must not treat the
    *  surface language as an author signal. */

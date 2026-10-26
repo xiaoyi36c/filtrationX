@@ -485,6 +485,9 @@ export function extractProfile(): Signals | null {
     // bio, no comment"). Own posts only (reposts carry the original author's
     // handle), deduped, bounded.
     recentTweets: profileTweets(profileScope, handle),
+    ...(profilePosts24h(profileScope, handle) > 0
+      ? { recentPosts24h: profilePosts24h(profileScope, handle) }
+      : {}),
     ...(avatarUrl ? { avatarUrl } : {}),
     ...(userId ? { userId } : {}),
     ...profileFacts(fu),
@@ -514,6 +517,24 @@ const PROFILE_TWEETS_MAX = 10;
 // counts repeated template texts across DISTINCT posts as corroborating
 // evidence, and each duplicate is its own post here, not a scraping artifact
 // (posts are bounded and read in timeline order).
+
+/** How many of the account's own rendered posts on the profile page carry a
+ *  <time datetime> within the last 24h. X virtualizes the timeline (~10-20
+ *  rows rendered), so this is a FLOOR on true daily volume — enough to spot
+ *  the "a post every few minutes" farm cadence (7m/46m/48m pattern). */
+export function profilePosts24h(scope: Element | Document, handle: string): number {
+  const want = handle.toLowerCase();
+  const cutoff = Date.now() - 86_400_000;
+  let n = 0;
+  for (const art of scope.querySelectorAll<HTMLElement>('article[data-testid="tweet"]')) {
+    if (handleFromArticle(art)?.toLowerCase() !== want) continue;
+    const dt = art.querySelector<HTMLTimeElement>("time[datetime]")?.getAttribute("datetime");
+    if (!dt) continue;
+    const ts = Date.parse(dt);
+    if (Number.isFinite(ts) && ts >= cutoff) n++;
+  }
+  return n;
+}
 
 export function profileTweets(scope: Element | Document, handle: string): string[] {
   const want = handle.toLowerCase();

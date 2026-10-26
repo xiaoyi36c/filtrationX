@@ -27,7 +27,8 @@ function norm(s: string | undefined | null): string {
     .replace(/ｆ/g, "f");
 }
 
-/** 互动农业话术（归一化后的形态）。 */
+/** 互动农业话术（归一化后的形态）。回关/巡逻来自互关农场样本
+ *  （2026-10-26 @Qiyaqiyoo：置顶推「每天都巡逻回关蓝v推友」）。 */
 const FARMING_PHRASES = [
   "交个朋友",
   "浇朋友",
@@ -39,6 +40,8 @@ const FARMING_PHRASES = [
   "互关",
   "互粉",
   "互相关注",
+  "回关",
+  "巡逻回关",
   "最亲密的陌生人",
 ];
 
@@ -83,6 +86,38 @@ function greetingFlood(recentTweets: string[] | undefined): string | null {
 }
 
 export function matchAifarmHeuristic(sig: Signals): string[] | null {
+  // 通道 D：互关农场（不限年龄）。对称大网络（粉丝与关注都过 800、比值
+  // 0.5-2，互关团的典型形状）+ 简介或推文里的回关/互关话术。单看对称结构
+  // 会误伤正常的互粉用户，单看话术会被老号年龄门槛挡住——两者相乘才是
+  // 「饺子每天都巡逻回关蓝v推友」这类号的形状。
+  const fw = sig.followersCount;
+  const fg = sig.followingCount;
+  const symmetric =
+    typeof fw === "number" &&
+    typeof fg === "number" &&
+    fw >= 800 &&
+    fg >= 800 &&
+    fw / fg >= 0.5 &&
+    fw / fg <= 2;
+  if (symmetric) {
+    const texts = [sig.bio, sig.displayName, ...(sig.recentTweets ?? []).slice(0, 10)]
+      .map(norm)
+      .filter(Boolean);
+    const phrase = FARMING_PHRASES.find((p) => texts.some((t) => t.includes(p)));
+    if (phrase) {
+      return [
+        `本地启发式 · AI 币圈蓝标：互关结构（粉丝 ${fw}/关注 ${fg}）+ 养号话术「${phrase}」`,
+      ];
+    }
+    // 蓝标会员 + 24h 内主页可见 ≥10 条（X 虚拟列表只渲染 10-20 行，10 条
+    // 意味着整页都是今天发的）——多维度叠加时话术可以缺席。
+    if (sig.isVerified && (sig.recentPosts24h ?? 0) >= 10) {
+      return [
+        `本地启发式 · AI 币圈蓝标：互关结构（粉丝 ${fw}/关注 ${fg}）+ 蓝标 + 24h 可见发帖 ${sig.recentPosts24h} 条`,
+      ];
+    }
+  }
+
   // 通道 C：问候模板刷屏（agent 自动回复），行为指纹不依赖年龄/发帖量。
   const flood = greetingFlood(sig.recentTweets);
   if (flood) {

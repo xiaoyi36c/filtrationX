@@ -185,3 +185,101 @@ test("短模板非问候语刷屏 → 前缀通道命中", () => {
   assert.ok(r);
   assert.match(r?.[0] ?? "", /模板/);
 });
+
+// ---- 通道 D：互关农场（不限年龄）----
+
+test("2026-10-26 互关农场样本（4.8 年老号 + 对称网络 + 置顶回关话术）→ 命中", () => {
+  const r = matchAifarmHeuristic(
+    sig({
+      handle: "Qiyaqiyoo",
+      accountAgeDays: 1750,
+      statusesCount: 24000,
+      followersCount: 5953,
+      followingCount: 5714,
+      isVerified: true,
+      bio: "饺子每天都巡逻回关蓝v推友，组织放心",
+      recentTweets: ["点进你的朋友圈，是脆皮捏捏，是超长蛋挞", "在穷人和士人之间选择了做一个又穷又土的人。"],
+    }),
+  );
+  assert.ok(r, "follow-back farm must hit regardless of age");
+  assert.match(r?.[0] ?? "", /互关结构/);
+  assert.match(r?.[0] ?? "", /回关/);
+});
+
+test("对称大网络但简介干净、无话术 → 不命中（防误伤正常互粉用户）", () => {
+  assert.equal(
+    matchAifarmHeuristic(
+      sig({
+        accountAgeDays: 1750,
+        statusesCount: 24000,
+        followersCount: 5953,
+        followingCount: 5714,
+        isVerified: true,
+        bio: "插画师，接稿请私信",
+        recentTweets: ["new painting, oil on canvas", "commissions open this month"],
+      }),
+    ),
+    null,
+  );
+});
+
+test("互关结构 + 蓝标 + 24h 可见 10 条 → 命中（话术缺席的多维度叠加）", () => {
+  const r = matchAifarmHeuristic(
+    sig({
+      accountAgeDays: 1000,
+      statusesCount: 9000,
+      followersCount: 2100,
+      followingCount: 2300,
+      isVerified: true,
+      bio: "日常记录",
+      recentPosts24h: 12,
+    }),
+  );
+  assert.ok(r);
+  assert.match(r?.[0] ?? "", /24h/);
+});
+
+test("24h 爆发但非对称网络或未开会员 → 不命中", () => {
+  assert.equal(
+    matchAifarmHeuristic(
+      sig({
+        accountAgeDays: 1000,
+        statusesCount: 9000,
+        followersCount: 90000,
+        followingCount: 300,
+        isVerified: true,
+        recentPosts24h: 12,
+        bio: "日常记录",
+      }),
+    ),
+    null,
+  );
+  assert.equal(
+    matchAifarmHeuristic(
+      sig({
+        accountAgeDays: 1000,
+        statusesCount: 9000,
+        followersCount: 2100,
+        followingCount: 2300,
+        recentPosts24h: 12,
+        bio: "日常记录",
+      }),
+    ),
+    null,
+  );
+});
+
+test("小号互粉（不足 800）不判互关农场", () => {
+  assert.equal(
+    matchAifarmHeuristic(
+      sig({
+        accountAgeDays: 100,
+        statusesCount: 300,
+        followersCount: 120,
+        followingCount: 130,
+        bio: "互关互fo",
+      }),
+    ),
+    null,
+  );
+});
