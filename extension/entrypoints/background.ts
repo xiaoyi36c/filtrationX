@@ -190,12 +190,16 @@ let followQueuePumping = false;
 const FOLLOW_PUMP_INTERVAL_MS = 1800;
 const FOLLOW_PUMP_JITTER_MS = 800;
 const FOLLOW_MAX_FAIL_STREAK = 5;
+// 连续非限流失败（多为「已关注」403，也可能是 ct0 过期——后者 retryable=false
+// 触发不了限流熔断）的熔断线：到线就停，别让登录态失效时把队列全程空跑。
+const FOLLOW_MAX_DEAD_STREAK = 20;
 
 async function pumpFollowQueue(): Promise<void> {
   if (followQueuePumping) return;
   followQueuePumping = true;
   try {
     let failStreak = 0;
+    let deadStreak = 0;
     for (;;) {
       const { getFollowQueue, saveFollowQueue } = await import("../lib/flj-sync");
       const { BLOCK_QUEUE_WORKER_KEY } = await import("../lib/block-queue");
@@ -216,6 +220,7 @@ async function pumpFollowQueue(): Promise<void> {
         skipped?: boolean;
         status?: number;
         invalid?: boolean;
+        followLimit?: boolean;
         reason?: string;
       };
       let res: FollowExecResult | null = null;
@@ -242,6 +247,7 @@ async function pumpFollowQueue(): Promise<void> {
         q.done++;
         q.lastError = null;
         failStreak = 0;
+        deadStreak = 0;
         // 成功关注 → 记入本机已关注名单（UI 圆环/标记/去重用）。
         if (res.ok && item?.h) {
           try {
@@ -254,21 +260,39 @@ async function pumpFollowQueue(): Promise<void> {
       } else {
         q.failed++;
         if (res.invalid) {
-          // 封禁/注销账号：一次性失败，记入失效名单（UI 打标 + 新队列跳过），
-          // 不累计熔断——它不是限流，也别让失效账号撑爆失败提示。
+          // 封禁/注销账号：一次性失败，记入失效名单（UI 打标 + 新队列跳过）。
+          // 请求本身是通的（认证没问题），重置连续失败计数。
           q.invalid = (q.invalid ?? 0) + 1;
           q.lastError = `${res.reason ?? "账号已失效"}：@${item.h}`;
+          deadStreak = 0;
           try {
             const { addInvalid } = await import("../lib/flj-sync");
             await addInvalid([item.h]);
           } catch {
             // 记录失败不影响队列
           }
+        } else if (res.followLimit) {
+          // 关注数到顶（161）：与账号无关，剩余队列继续跑必然全败——立即停。
+          q.running = false;
+          q.finishedAt = Date.now();
+          q.lastError = `${res.reason ?? "已达到关注上限"}——队列已停止`;
+          await saveFollowQueue(q);
+          return;
         } else {
-          q.lastError = res.status ? `X 返回 ${res.status}（可能已关注）` : "关注未执行";
-          // 熔断只看限流类失败（retryable = 429/5xx 等）；「已关注」这类
-          // 一次性失败只计数跳过，别把整个队列打断。
+          q.lastError = res.reason ?? (res.status ? `X 返回 ${res.status}（可能已关注）` : "关注未执行");
+          // 限流熔断只看 retryable（429/5xx 等）。
           if (res.retryable) failStreak++;
+          // 但「已关注」/登录态失效这类一次性失败也不该无限跑：ct0 过期时
+          // 每条都是 403 且 retryable=false，到线就停（已在 X 端手动关注的
+          // 账号多的用户可能正常触发——阈值放宽到 20，停了也能断点续跑）。
+          else deadStreak++;
+          if (deadStreak >= FOLLOW_MAX_DEAD_STREAK) {
+            q.running = false;
+            q.finishedAt = Date.now();
+            q.lastError = `连续 ${deadStreak} 次失败（多为已关注，或登录态已失效）——已暂停，刷新 x.com 后重新开始可从断点继续`;
+            await saveFollowQueue(q);
+            return;
+          }
         }
       }
       if (failStreak >= FOLLOW_MAX_FAIL_STREAK) {
@@ -679,11 +703,12 @@ export default defineBackground(() => {
             if (!data.bloggers.length) {
               sendResponse({ ok: false, error: "先同步榜单数据" });
             } else {
-              // 已关注过 / 已失效（封禁、注销）的直接排除，不占本轮名额。
+              // 已关注过 / 已失效（封禁、注销，含数据源预标 dead）的直接排除，
+              // 不占本轮名额。
               const followed = await getFollowedSet();
               const invalid = await getInvalidSet();
               const candidates = data.bloggers.filter(
-                (b) => !followed.has(b.h) && !invalid.has(b.h),
+                (b) => !followed.has(b.h) && !invalid.has(b.h) && !b.dead,
               );
               const items = buildFollowQueue(candidates, {
                 skipNegative: msg.skipNegative !== false,
@@ -692,9 +717,10 @@ export default defineBackground(() => {
               if (!items.length) {
                 sendResponse({
                   ok: false,
-                  error: followed.size
-                    ? "筛选后的博主都已关注过"
-                    : "筛选后没有可关注的博主",
+                  error:
+                    followed.size || invalid.size || data.bloggers.some((b) => b.dead)
+                      ? "筛选后的博主都已关注过或已失效"
+                      : "筛选后没有可关注的博主",
                 });
               } else {
                 const q = await getFollowQueue();

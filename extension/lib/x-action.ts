@@ -20,6 +20,8 @@ export interface XActionAttempt {
   retryAfterMs?: number;
   /** 账号已失效（被 X 封禁 / 不存在）——一次性失败，标记后永远跳过。 */
   invalid?: boolean;
+  /** 已达关注上限（错误码 161）——与账号无关，队列应立即停止。 */
+  followLimit?: boolean;
   /** Human-readable failure cause. Diagnostic only — never sent anywhere.
    *  Without this a failed mute/block is completely silent (the caller just
    *  returns false), which makes "auto-block does nothing" undebuggable. */
@@ -293,7 +295,7 @@ function xhrPost(
 }
 
 /**
- * 从 X 的错误响应里识别「账号已失效」（纯函数，可测）。
+ * 从 X 的错误响应里识别「账号已失效」等终态（纯函数，可测）。
  *
  * 榜单数据混有已被封禁 / 注销的账号——对它们调用 friendships/create 会得到
  * 403/404 + JSON errors[{code,message}]，此前被笼统当成「可能已关注」，导致
@@ -301,12 +303,14 @@ function xhrPost(
  *   63  = User has been suspended（Account suspended 页）
  *   50  = User not found
  *   108 = Cannot find specified user
- * HTTP 404 同样说明账号没了。返回 invalid=true 的账号应被永久记录、跳过。
+ *   161 = 关注数达到上限（跟账号无关，继续跑没有意义）
+ * HTTP 404 同样说明账号没了。invalid=true 的账号应被永久记录、跳过；
+ * follow-limit=true 时调用方应立即停止队列。
  */
 export function classifyActionBody(
   status: number,
   bodyText: string,
-): { invalid: boolean; reason?: string } {
+): { kind: "invalid" | "follow-limit" | "other"; invalid: boolean; reason?: string } {
   let code: number | null = null;
   let message = "";
   try {
@@ -317,8 +321,17 @@ export function classifyActionBody(
   } catch {
     /* 响应体不是 JSON（HTML 错误页等）→ 只按状态码判断 */
   }
+  // 161 = follow limit reached：跟具体账号无关，剩余队列继续跑必然全败。
+  if (code === 161) {
+    return {
+      kind: "follow-limit",
+      invalid: false,
+      reason: "已达到 X 的关注上限（改天再试，或先取关一些账号）",
+    };
+  }
   if (code === 63 || code === 50 || code === 108 || status === 404) {
     return {
+      kind: "invalid",
       invalid: true,
       reason:
         code === 63 || /suspend/i.test(message)
@@ -326,7 +339,7 @@ export function classifyActionBody(
           : "账号不存在（已注销或从未存在）",
     };
   }
-  return { invalid: false };
+  return { kind: "other", invalid: false };
 }
 
 /** Single first-party mute/block call. Returns ok/false + retry hints. */
@@ -377,13 +390,15 @@ async function rawAction(
     const ok = status >= 200 && status < 300;
     const cls = classifyActionBody(status, res.text());
     const retryable =
-      !cls.invalid && (status === 408 || status === 425 || status === 429 || status >= 500);
+      cls.kind !== "invalid" &&
+      (status === 408 || status === 425 || status === 429 || status >= 500);
     return {
       ok,
       status,
       retryAfterMs: parseRetryAfterMs(res.header("retry-after")),
       retryable,
       invalid: cls.invalid,
+      followLimit: cls.kind === "follow-limit",
       // 失效账号给出具体原因（封禁/不存在）；其余 403/401 仍是 CSRF/会话类
       // 提示——「可能已关注」的老语义保持不变。
       reason: ok ? undefined : (cls.reason ?? `X 返回 HTTP ${status}`),

@@ -40,6 +40,9 @@ export interface FljBlogger {
   engagement?: string;
   followers?: number;
   avatar?: string;
+  /** 数据源已标记封禁（boomboom 的 is_suspended）——不用等关注队列去试，
+   *  UI 直接打「✗ 失效」并从待关注里排除。 */
+  dead?: boolean;
 }
 
 /** 榜单分类（/api/rankings/overview 的 id 集合）及中文名。 */
@@ -187,6 +190,7 @@ export function mergeCategoryResults(
         if (b.fushi) prev.fushi = true;
         if (b.threshold) prev.threshold = true;
         if (b.verifiedReal) prev.verifiedReal = true;
+        if (b.dead) prev.dead = true;
         if ((b.followers ?? 0) > (prev.followers ?? 0)) prev.followers = b.followers;
         prev.pos = [...new Set([...prev.pos, ...b.pos])];
         prev.neg = [...new Set([...prev.neg, ...b.neg])];
@@ -336,10 +340,14 @@ export function parseBoomboomArchive(payload: unknown): FljBlogger[] {
     const h = typeof it.screen_name === "string" ? it.screen_name.trim().toLowerCase() : "";
     if (!h || !/^[a-z0-9_]{1,15}$/.test(h)) continue;
     const av = typeof it.avatar_url === "string" ? it.avatar_url : "";
+    // 源数据自己就标记了封禁号（is_suspended: 0/1 或 false/true）——直接
+    // 预标 dead，省掉关注队列逐个去撞 403。
+    const suspended = it.is_suspended === 1 || it.is_suspended === true;
     out.push({
       h,
       ...(typeof it.name === "string" && it.name ? { n: it.name } : {}),
       ...(typeof it.followers_count === "number" ? { followers: it.followers_count } : {}),
+      ...(suspended ? { dead: true } : {}),
       neg: [],
       pos: [],
       ...(av ? { avatar: av.startsWith("http") ? av : `https://img.boomboom.nyc.mn${av}` } : {}),

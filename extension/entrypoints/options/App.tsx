@@ -3855,6 +3855,8 @@ function FljPage() {
   const [cat, setCat] = useState("all");
   const [skipNegative, setSkipNegative] = useState(true);
   const [excludeFushi, setExcludeFushi] = useState(false);
+  // 失效账号（X 证实或数据源预标）默认不进表格——浏览榜单时它们是噪音。
+  const [hideInvalid, setHideInvalid] = useState(true);
   const [batch, setBatch] = useState(50);
   const [msg, setMsg] = useState<{ text: string; ok: boolean } | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
@@ -3907,11 +3909,12 @@ function FljPage() {
     const s = search.trim().toLowerCase();
     return bloggers.filter((b) => {
       if (excludeFushi && b.fushi) return false;
+      if (hideInvalid && (invalid.has(b.h) || b.dead)) return false;
       if (cat !== "all" && !(b.cats ?? []).includes(cat)) return false;
       if (s && !`${b.h} ${b.n ?? ""}`.toLowerCase().includes(s)) return false;
       return true;
     });
-  }, [bloggers, excludeFushi, cat, search]);
+  }, [bloggers, excludeFushi, hideInvalid, invalid, cat, search]);
   const shown = rows.slice(0, limit);
 
   const startFollow = async () => {
@@ -3947,8 +3950,8 @@ function FljPage() {
   const pending = Math.max(0, (q?.items.length ?? 0) - (q?.cursor ?? 0));
   // 已关注可视化：圆环统计「榜单内已通过本扩展关注过」的占比。
   const followedCount = bloggers.filter((b) => followed.has(b.h)).length;
-  const invalidCount = bloggers.filter((b) => invalid.has(b.h)).length;
-  const followableRows = rows.filter((b) => !followed.has(b.h) && !invalid.has(b.h)).length;
+  const invalidCount = bloggers.filter((b) => invalid.has(b.h) || b.dead).length;
+  const followableRows = rows.filter((b) => !followed.has(b.h) && !invalid.has(b.h) && !b.dead).length;
   const ringPct = bloggers.length ? Math.round((followedCount / bloggers.length) * 100) : 0;
   const R = 22;
   const CIRC = 2 * Math.PI * R;
@@ -4082,6 +4085,17 @@ function FljPage() {
                 />
                 {t("flj.excludeFushi")}
               </label>
+              <label className="flex cursor-pointer items-center gap-1.5">
+                <input
+                  type="checkbox"
+                  checked={hideInvalid}
+                  onChange={(e) => {
+                    setHideInvalid(e.target.checked);
+                    setLimit(200);
+                  }}
+                />
+                隐藏失效
+              </label>
               <label className="flex items-center gap-1.5">
                 榜单
                 <select
@@ -4181,7 +4195,7 @@ function FljPage() {
                 {shown.map((b) => (
                   <tr
                     key={b.h}
-                    className={`${trHover} ${followed.has(b.h) || invalid.has(b.h) ? "opacity-60" : ""}`}
+                    className={`${trHover} ${followed.has(b.h) || invalid.has(b.h) || b.dead ? "opacity-60" : ""}`}
                   >
                     <td className={td}>
                       <div className="flex items-center gap-2.5">
@@ -4209,10 +4223,10 @@ function FljPage() {
                     </td>
                     <td className={td}>
                       <div className="flex flex-wrap gap-1 text-[11px]">
-                        {invalid.has(b.h) && (
+                        {(invalid.has(b.h) || b.dead) && (
                           <span
                             className="rounded bg-danger/15 px-1.5 py-0.5 text-danger"
-                            title="X 返回账号封禁/不存在——关注队列自动跳过"
+                            title="已被 X 封禁或不存在（关注队列自动跳过；数据源标记或队列执行时证实）"
                           >
                             ✗ 失效
                           </span>

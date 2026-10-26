@@ -111,7 +111,22 @@ test("parseBoomboomArchive：handle/name/粉丝/相对头像拼接", () => {
   assert.equal(b.n, "Naimi奶咪");
   assert.equal(b.followers, 4327960);
   assert.equal(b.avatar, "https://img.boomboom.nyc.mn/api/media?key=avatars%2FAnaimiya_400x400.jpg");
+  assert.equal(b.dead, undefined); // 未标记封禁
   assert.equal(parseBoomboomArchive("nope").length, 0);
+});
+
+test("parseBoomboomArchive：is_suspended 预标 dead（0/1 与 true/false 两种形态）", () => {
+  const out = parseBoomboomArchive([
+    { screen_name: "dead_one", is_suspended: 1 },
+    { screen_name: "dead_two", is_suspended: true },
+    { screen_name: "alive_one", is_suspended: 0 },
+    { screen_name: "alive_two", is_suspended: false },
+  ]);
+  const byH = new Map(out.map((x) => [x.h, x]));
+  assert.equal(byH.get("dead_one")?.dead, true);
+  assert.equal(byH.get("dead_two")?.dead, true);
+  assert.equal(byH.get("alive_one")?.dead, undefined);
+  assert.equal(byH.get("alive_two")?.dead, undefined);
 });
 
 test("parseNsfwPetPage：data.creators + meta.has_more/total", () => {
@@ -169,4 +184,14 @@ test("mergeCategoryResults：跨分类去重、cats 记录、并集合并、按�
   assert.deepEqual(aaa?.pos, ["recommended", "praised"]);
   assert.deepEqual(aaa?.tags, ["福利博主"]);
   assert.equal(merged.find((b) => b.h === "aaa")?.n, "甲"); // 名字保留
+});
+
+test("mergeCategoryResults：数据源预标 dead 跨分类保留", () => {
+  const merged = mergeCategoryResults([
+    { category: "boomboom", bloggers: [{ h: "xxx", neg: [], pos: [], dead: true }] },
+    { category: "comments", bloggers: [{ h: "xxx", neg: [], pos: [] }] },
+  ]);
+  assert.equal(merged.length, 1);
+  assert.equal(merged[0]?.dead, true);
+  assert.deepEqual(merged[0]?.cats, ["boomboom", "comments"]);
 });

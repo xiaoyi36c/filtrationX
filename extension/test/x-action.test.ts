@@ -130,6 +130,16 @@ test("classifyActionBody：HTTP 404 即使无 JSON 体也算失效", () => {
   assert.equal(r.invalid, true);
 });
 
+test("classifyActionBody：code 161 = 关注上限，不是失效也不是已关注", () => {
+  const body = JSON.stringify({
+    errors: [{ code: 161, message: "You are unable to follow more people at this time." }],
+  });
+  const r = classifyActionBody(403, body);
+  assert.equal(r.invalid, false);
+  assert.equal(r.kind, "follow-limit");
+  assert.match(r.reason ?? "", /上限/);
+});
+
 test("classifyActionBody：已关注/限流等其它失败不算失效", () => {
   // 403 无错误码（老语义「可能已关注」）
   assert.equal(classifyActionBody(403, "").invalid, false);
