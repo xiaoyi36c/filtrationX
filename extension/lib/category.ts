@@ -3,7 +3,7 @@
 // LLM / maintainer-curated keyword rules and shipped inside the bundled
 // blacklist; the extension only consumes them (no local guessing).
 
-export type SpamCategory = "porn" | "crypto" | "gambling" | "resource" | "marketing" | "aifarm" | "other";
+export type SpamCategory = "porn" | "crypto" | "gambling" | "resource" | "marketing" | "other";
 
 export const SPAM_CATEGORIES: readonly SpamCategory[] = [
   "porn",
@@ -11,7 +11,6 @@ export const SPAM_CATEGORIES: readonly SpamCategory[] = [
   "gambling",
   "resource",
   "marketing",
-  "aifarm",
   "other",
 ];
 
@@ -22,7 +21,6 @@ const CODE_TO_CATEGORY: Record<string, SpamCategory> = {
   g: "gambling",
   r: "resource",
   m: "marketing",
-  a: "aifarm",
   o: "other",
 };
 
@@ -36,7 +34,6 @@ export const CATEGORY_ZH: Record<SpamCategory, string> = {
   gambling: "博彩推广",
   resource: "网盘资源",
   marketing: "营销引流",
-  aifarm: "AI 币圈蓝标",
   other: "其它",
 };
 

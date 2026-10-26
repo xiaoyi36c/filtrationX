@@ -1,9 +1,9 @@
-// 内置 aifarm 启发式 v2（lib/aifarm-heuristic.ts）的精度边界：
-// 通道 A = 年轻 + 日均≥30 + 话术（简介/昵称/回复/推文，归一化匹配）；
-// 通道 B = 年轻(<30 天) + 日均≥60 + 币圈/web3/炒股类垂直简介。
+// 内置养号/互关农场 + 营销引流启发式（lib/farm-heuristic.ts）的精度边界。
+// 历史说明：曾单独设「AI 币圈蓝标」分类，后按真实功能并入 crypto/marketing；
+// 检测规则本身不变。
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { matchAifarmHeuristic, matchPromoFlood } from "../lib/aifarm-heuristic";
+import { farmCategoryOf, matchFarmHeuristic, matchPromoFlood } from "../lib/farm-heuristic";
 import type { Signals } from "../lib/types";
 
 function sig(over: Partial<Signals>): Signals {
@@ -18,54 +18,57 @@ function sig(over: Partial<Signals>): Signals {
 }
 
 test("2026-10-26 实测停用样本号命中（年轻 + 日均50 + 互fo话术）", () => {
-  const r = matchAifarmHeuristic(sig({}));
+  const r = matchFarmHeuristic(sig({}));
   assert.ok(r, "screenshot sample must hit");
   const text = r?.[0] ?? "";
-  assert.match(text, /AI 币圈蓝标/);
+  assert.match(text, /养号农场/);
   assert.match(text, /互fo/);
+  // 简介无币圈/搞钱画像 → marketing
+  assert.equal(farmCategoryOf(sig({})), "marketing");
 });
 
 test("归一化拦住变体：互 fo / 互f0 / 交个朋友", () => {
-  assert.ok(matchAifarmHeuristic(sig({ bio: "欢迎 互 fo" })), "空白变体");
-  assert.ok(matchAifarmHeuristic(sig({ bio: "互f0，走个面儿" })), "f0 变体");
-  assert.ok(matchAifarmHeuristic(sig({ bio: "来我主页交个朋友" })), "交个朋友");
+  assert.ok(matchFarmHeuristic(sig({ bio: "欢迎 互 fo" })), "空白变体");
+  assert.ok(matchFarmHeuristic(sig({ bio: "互f0，走个面儿" })), "f0 变体");
+  assert.ok(matchFarmHeuristic(sig({ bio: "来我主页交个朋友" })), "交个朋友");
 });
 
 test("话术在回复里也算（简介干净）", () => {
-  const r = matchAifarmHeuristic(
+  const r = matchFarmHeuristic(
     sig({ bio: "记录日常", triggeringComment: "兄弟有空来浇朋友啊😂" }),
   );
   assert.ok(r);
 });
 
 test("通道 B：无话术但 <30 天日均 60+ 且币圈垂直简介", () => {
-  const r = matchAifarmHeuristic(
+  const r = matchFarmHeuristic(
     sig({ accountAgeDays: 20, statusesCount: 1300, bio: "专注 web3 与 AI 一级市场" }),
   );
   assert.ok(r);
   assert.match(r?.[0] ?? "", /垂直词/);
+  assert.equal(farmCategoryOf(sig({ bio: "专注 web3 与 AI 一级市场" })), "crypto");
 });
 
 test("老号高产不命中（<90 天门槛）", () => {
-  assert.equal(matchAifarmHeuristic(sig({ accountAgeDays: 400, statusesCount: 20000 })), null);
+  assert.equal(matchFarmHeuristic(sig({ accountAgeDays: 400, statusesCount: 20000 })), null);
 });
 
 test("年轻但发帖量正常不命中", () => {
-  assert.equal(matchAifarmHeuristic(sig({ statusesCount: 300 })), null);
+  assert.equal(matchFarmHeuristic(sig({ statusesCount: 300 })), null);
 });
 
 test("缺发帖量数据不命中（宁漏勿误）", () => {
-  assert.equal(matchAifarmHeuristic(sig({ statusesCount: undefined })), null);
+  assert.equal(matchFarmHeuristic(sig({ statusesCount: undefined })), null);
 });
 
 test("高频年轻号但无话术、简介非农场垂直不命中", () => {
   assert.equal(
-    matchAifarmHeuristic(sig({ bio: "产品经理，记录日常与思考", displayName: "阿明" })),
+    matchFarmHeuristic(sig({ bio: "产品经理，记录日常与思考", displayName: "阿明" })),
     null,
   );
   // 通道 B 边界：日均不足 60 也不走 B
   assert.equal(
-    matchAifarmHeuristic(
+    matchFarmHeuristic(
       sig({ accountAgeDays: 20, statusesCount: 1000, bio: "web3 学习笔记" }),
     ),
     null,
@@ -73,7 +76,7 @@ test("高频年轻号但无话术、简介非农场垂直不命中", () => {
 });
 
 test("话术在昵称里也算", () => {
-  const r = matchAifarmHeuristic(sig({ bio: "", displayName: "币圈互关哥" }));
+  const r = matchFarmHeuristic(sig({ bio: "", displayName: "币圈互关哥" }));
   assert.ok(r);
 });
 
@@ -82,7 +85,7 @@ test("话术在昵称里也算", () => {
 test("主页近采样 ≥40% 问候模板 → 命中（老号也判）", () => {
   const wall = Array.from({ length: 8 }, (_, i) => `你好呀，我是小助手${i}，很高兴认识你！`);
   wall.push("今天天气不错", "吃了吗朋友们");
-  const r = matchAifarmHeuristic(
+  const r = matchFarmHeuristic(
     sig({ accountAgeDays: 500, statusesCount: 900, recentTweets: wall }),
   );
   assert.ok(r, "greeting flood must hit regardless of age");
@@ -98,7 +101,7 @@ test("近重复开场白 ≥4 条 → 命中", () => {
     "今天天气不错",
     "周末愉快",
   ];
-  const r = matchAifarmHeuristic(
+  const r = matchFarmHeuristic(
     sig({ accountAgeDays: 120, statusesCount: 2000, recentTweets: wall }),
   );
   assert.ok(r);
@@ -106,7 +109,7 @@ test("近重复开场白 ≥4 条 → 命中", () => {
 });
 
 test("回复区模板记忆复现 ≥2 次 + 问候语 → 命中", () => {
-  const r = matchAifarmHeuristic(
+  const r = matchFarmHeuristic(
     sig({
       accountAgeDays: 200,
       statusesCount: 500,
@@ -129,14 +132,14 @@ test("正常内容主页不误判（问候偶发 + 多样内容）", () => {
     "路由器终于换了，WiFi 满速",
   ];
   assert.equal(
-    matchAifarmHeuristic(sig({ accountAgeDays: 500, statusesCount: 900, recentTweets: wall })),
+    matchFarmHeuristic(sig({ accountAgeDays: 500, statusesCount: 900, recentTweets: wall })),
     null,
   );
 });
 
 test("采样不足 6 条不判通道 C（宁漏勿误）", () => {
   assert.equal(
-    matchAifarmHeuristic(
+    matchFarmHeuristic(
       sig({
         accountAgeDays: 500,
         statusesCount: 900,
@@ -155,7 +158,7 @@ test("完全相同的问候语刷屏（去重取消后的真实墙）→ 命中"
   // 2026-10-26 实测：profileTweets 原先对完全相同文本去重，30 条一模一样的
   // 问候语只剩 1 条，通道 C 永远凑不够样本。现在的真实形态应直接命中。
   const wall = Array.from({ length: 10 }, () => "你好呀，我是小八见，很高兴认识你！");
-  const r = matchAifarmHeuristic(
+  const r = matchFarmHeuristic(
     sig({ accountAgeDays: 400, statusesCount: 3000, recentTweets: wall }),
   );
   assert.ok(r);
@@ -169,7 +172,7 @@ test("日更系列长文同前缀不误判（前缀通道仅限短文本）", ()
       `早报：今日要闻速览第 ${i + 1} 期。全球市场综述与科技动态，aily 摘要包括宏观政策、行业变化与公司公告的完整分析，正文很长很长很长。`,
   );
   assert.equal(
-    matchAifarmHeuristic(sig({ accountAgeDays: 400, statusesCount: 900, recentTweets: digest })),
+    matchFarmHeuristic(sig({ accountAgeDays: 400, statusesCount: 900, recentTweets: digest })),
     null,
   );
 });
@@ -179,7 +182,7 @@ test("短模板非问候语刷屏 → 前缀通道命中", () => {
     { length: 6 },
     () => "家人们谁懂啊，这个瓜也太离谱了吧",
   );
-  const r = matchAifarmHeuristic(
+  const r = matchFarmHeuristic(
     sig({ accountAgeDays: 150, statusesCount: 4000, recentTweets: wall }),
   );
   assert.ok(r);
@@ -189,7 +192,7 @@ test("短模板非问候语刷屏 → 前缀通道命中", () => {
 // ---- 通道 D：互关农场（不限年龄）----
 
 test("2026-10-26 互关农场样本（4.8 年老号 + 对称网络 + 置顶回关话术）→ 命中", () => {
-  const r = matchAifarmHeuristic(
+  const r = matchFarmHeuristic(
     sig({
       handle: "Qiyaqiyoo",
       accountAgeDays: 1750,
@@ -208,7 +211,7 @@ test("2026-10-26 互关农场样本（4.8 年老号 + 对称网络 + 置顶回�
 
 test("对称大网络但简介干净、无话术 → 不命中（防误伤正常互粉用户）", () => {
   assert.equal(
-    matchAifarmHeuristic(
+    matchFarmHeuristic(
       sig({
         accountAgeDays: 1750,
         statusesCount: 24000,
@@ -224,7 +227,7 @@ test("对称大网络但简介干净、无话术 → 不命中（防误伤正常
 });
 
 test("互关结构 + 蓝标 + 24h 可见 10 条 → 命中（话术缺席的多维度叠加）", () => {
-  const r = matchAifarmHeuristic(
+  const r = matchFarmHeuristic(
     sig({
       accountAgeDays: 1000,
       statusesCount: 9000,
@@ -241,7 +244,7 @@ test("互关结构 + 蓝标 + 24h 可见 10 条 → 命中（话术缺席的多�
 
 test("24h 爆发但非对称网络或未开会员 → 不命中", () => {
   assert.equal(
-    matchAifarmHeuristic(
+    matchFarmHeuristic(
       sig({
         accountAgeDays: 1000,
         statusesCount: 9000,
@@ -255,7 +258,7 @@ test("24h 爆发但非对称网络或未开会员 → 不命中", () => {
     null,
   );
   assert.equal(
-    matchAifarmHeuristic(
+    matchFarmHeuristic(
       sig({
         accountAgeDays: 1000,
         statusesCount: 9000,
@@ -269,43 +272,41 @@ test("24h 爆发但非对称网络或未开会员 → 不命中", () => {
   );
 });
 
-test("2026-10-26 @ImYanBoss 样本（对称互关 + 蓝标 + 副业/股票简介）→ 命中", () => {
-  const r = matchAifarmHeuristic(
-    sig({
-      handle: "ImYanBoss",
-      accountAgeDays: 400,
-      statusesCount: 3000,
-      followersCount: 8679,
-      followingCount: 8061,
-      isVerified: true,
-      bio: "分享生活 | 程序员 | 副业探索 ing | 股票研究 ing\n根据 Mi 姐秘籍做了个网站：miyanbo.im\n持续探索一切可能 ✨",
-      recentTweets: [],
-    }),
-  );
-  assert.ok(r, "verified follow-back KOL variant must hit");
-  assert.match(r?.[0] ?? "", /互关结构/);
-  assert.match(r?.[0] ?? "", /副业|股票/);
-});
-
-test("对称互关 + 蓝标但简介干净 → 不命中（防误伤正常互粉 KOL）", () => {
+test("小号互粉（不足 800）不判互关农场", () => {
   assert.equal(
-    matchAifarmHeuristic(
+    matchFarmHeuristic(
       sig({
-        accountAgeDays: 400,
-        statusesCount: 3000,
-        followersCount: 8679,
-        followingCount: 8061,
-        isVerified: true,
-        bio: "插画师，接稿请私信",
-        recentTweets: ["new painting, oil on canvas"],
+        accountAgeDays: 100,
+        statusesCount: 300,
+        followersCount: 120,
+        followingCount: 130,
+        bio: "互关互fo",
       }),
     ),
     null,
   );
 });
 
+test("2026-10-26 @ImYanBoss 样本（对称互关 + 蓝标 + 副业/股票简介）→ 命中且归 crypto", () => {
+  const s = sig({
+    handle: "ImYanBoss",
+    accountAgeDays: 400,
+    statusesCount: 3000,
+    followersCount: 8679,
+    followingCount: 8061,
+    isVerified: true,
+    bio: "分享生活 | 程序员 | 副业探索 ing | 股票研究 ing\n根据 Mi 姐秘籍做了个网站：miyanbo.im\n持续探索一切可能 ✨",
+    recentTweets: [],
+  });
+  const r = matchFarmHeuristic(s);
+  assert.ok(r, "verified follow-back KOL variant must hit");
+  assert.match(r?.[0] ?? "", /互关结构/);
+  assert.match(r?.[0] ?? "", /副业|股票/);
+  assert.equal(farmCategoryOf(s), "crypto");
+});
+
 test("超大对称互关（两侧 ≥5000）+ 搞钱简介 → 不依赖蓝标也命中", () => {
-  const r = matchAifarmHeuristic(
+  const r = matchFarmHeuristic(
     sig({
       handle: "ImYanBoss",
       accountAgeDays: 400,
@@ -320,15 +321,17 @@ test("超大对称互关（两侧 ≥5000）+ 搞钱简介 → 不依赖蓝标�
   assert.ok(r, "5k+ symmetric network with money bio must hit even without the verified flag");
 });
 
-test("小号互粉（不足 800）不判互关农场", () => {
+test("对称互关 + 蓝标但简介干净 → 不命中（防误伤正常互粉 KOL）", () => {
   assert.equal(
-    matchAifarmHeuristic(
+    matchFarmHeuristic(
       sig({
-        accountAgeDays: 100,
-        statusesCount: 300,
-        followersCount: 120,
-        followingCount: 130,
-        bio: "互关互fo",
+        accountAgeDays: 400,
+        statusesCount: 3000,
+        followersCount: 8679,
+        followingCount: 8061,
+        isVerified: true,
+        bio: "插画师，接稿请私信",
+        recentTweets: ["new painting, oil on canvas"],
       }),
     ),
     null,

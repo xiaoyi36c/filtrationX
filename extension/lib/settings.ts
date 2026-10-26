@@ -70,7 +70,6 @@ export const DEFAULT_CATEGORY_ACTIONS: CategoryActions = {
   gambling: "badge",
   resource: "badge",
   marketing: "badge",
-  aifarm: "badge",
   other: "badge",
 };
 

@@ -1,20 +1,26 @@
-// 内置启发式：「AI 币圈蓝标」养号农场（aifarm 分类）。v3。
+// 内置启发式：养号/互关农场与电商促销刷屏（v4）。
+//
+// 历史说明：曾单独设「AI 币圈蓝标」（aifarm）分类，后按真实功能并入既有
+// 分类——检测规则全部保留，只是归属变了：
+//   - 简介带 币圈/web3/炒股/副业/秘籍 等搞钱画像 → crypto（币圈投放）
+//   - 纯互关/养号/营销行为（无搞钱画像）      → marketing（营销引流）
 //
 // 与关键词规则的区别：规则匹配的是文本模板；这类号的文本千变万化（AI 生成），
-// 但**行为指纹**极其一致。三条通道，均为宁漏勿误：
+// 但**行为指纹**极其一致。四条通道，均为宁漏勿误：
 //
 //   A. 年轻(<90 天) + 日均 ≥30 条 + 养号话术（简介/昵称/回复/推文，归一化
 //      匹配：去空白零宽、f0→fo，拦「互 fo」「互f0」变体）。
 //   B. 无话术通道：注册 <30 天 + 日均 ≥60 条（阈值倍增）+ 简介 带
-//      币圈/web3/炒币/空投/炒股/数字游民/带单 垂直词。纯高频不判——新闻
-//      实况、活动直播号存在，但它们既年轻不过 30 天又是这些垂直的比例极低。
+//      币圈/web3/炒股/数字游民等农场垂直词。纯高频不判——新闻实况、活动
+//      直播号存在，但它们既年轻不过 30 天又是这些垂直的比例极低。
 //   C. 问候模板刷屏（agent 自动回复指纹，不限年龄）：主页近 6 条以上采样里
-//      ≥40% 是「你好呀我是xx / 很高兴认识你」式问候模板，或 ≥4 条共享同一
-//      归一化前缀（近重复）。真人不至于用同一套开场白回答一半的时间线；
-//      另外本机模板记忆里同一文本出现 ≥2 次且是问候语也算。
+//      ≥40% 是「你好呀我是xx / 很高兴认识你」式问候模板，或 ≥4 条短文本
+//      共享同一归一化前缀；本机模板记忆里同一文本出现 ≥2 次且是问候语也算。
+//   D. 互关农场（不限年龄）：对称大网络（粉丝与关注都过 800、比值 0.5-2）
+//      叠加 回关/互关话术、或 蓝标+24h 爆发、或 蓝标/超大网络+搞钱副业简介。
 //
-// AI 头像、回复语义等弱信号交给在线 AI 分类器（服务端 SYSTEM 提示词已覆盖
-// aifarm），本地不做猜测。
+// AI 头像、回复语义等弱信号交给在线 AI 分类器，本地不做猜测。
+import type { SpamCategory } from "./category";
 import type { Signals } from "./types";
 
 /** 归一化：小写、去空白与零宽字符、常见变体字归一。 */
@@ -45,11 +51,12 @@ const FARMING_PHRASES = [
   "最亲密的陌生人",
 ];
 
-/** 币圈/AI 农场垂直词（仅用于无话术的通道 B）。 */
+/** 币圈/AI 农场垂直词（通道 B 的简介要求；也是 crypto/marketing 归类的
+ *  依据之一）。 */
 const FARM_VERTICALS = ["币圈", "web3", "炒币", "空投", "炒股", "数字游民", "带单"];
 
-/** 搞钱副业简介词（仅用于通道 D 的蓝标变体）：副业/秘籍/股票类自我标榜
- *  是蓝标互关团的常见简介画像。 */
+/** 搞钱副业简介词：副业/秘籍/股票类自我标榜是蓝标互关团的常见简介画像，
+ *  也是归入 crypto 的信号之一。 */
 const MONEY_MARKERS = [
   "副业",
   "搞钱",
@@ -73,6 +80,17 @@ function volumePerDay(sig: Signals): { age: number; posts: number; perDay: numbe
   if (typeof age !== "number" || typeof posts !== "number" || !Number.isFinite(age) || age < 1)
     return null;
   return { age, posts, perDay: posts / age };
+}
+
+/** 养号/互关农场命中归入哪个分类：简介/昵称/近期推文带币圈、web3、炒股、
+ *  秘籍、搞钱等画像 → crypto（币圈投放，这类号的最终目的是卖币卖课）；
+ *  纯互关/涨粉行为 → marketing（营销引流）。 */
+export function farmCategoryOf(sig: Signals): SpamCategory {
+  const texts = [sig.bio, sig.displayName, ...(sig.recentTweets ?? []).slice(0, 10)]
+    .map(norm)
+    .filter(Boolean);
+  const moneyish = [...FARM_VERTICALS, "秘籍", "搞钱", "网赚", "躺赚"];
+  return moneyish.some((m) => texts.some((t) => t.includes(m))) ? "crypto" : "marketing";
 }
 
 /** 通道 C：主页时间线的问候模板占比 / 近重复前缀。返回证据文案或 null。 */
@@ -100,11 +118,11 @@ function greetingFlood(recentTweets: string[] | undefined): string | null {
   return null;
 }
 
-export function matchAifarmHeuristic(sig: Signals): string[] | null {
+export function matchFarmHeuristic(sig: Signals): string[] | null {
   // 通道 D：互关农场（不限年龄）。对称大网络（粉丝与关注都过 800、比值
-  // 0.5-2，互关团的典型形状）+ 简介或推文里的回关/互关话术。单看对称结构
-  // 会误伤正常的互粉用户，单看话术会被老号年龄门槛挡住——两者相乘才是
-  // 「饺子每天都巡逻回关蓝v推友」这类号的形状。
+  // 0.5-2，互关团的典型形状）+ 养号证据。单看对称结构会误伤正常的互粉
+  // 用户，单看话术会被老号年龄门槛挡住——两者相乘才是「饺子每天都巡逻
+  // 回关蓝v推友」这类号的形状。
   const fw = sig.followersCount;
   const fg = sig.followingCount;
   const symmetric =
@@ -121,33 +139,32 @@ export function matchAifarmHeuristic(sig: Signals): string[] | null {
     const phrase = FARMING_PHRASES.find((p) => texts.some((t) => t.includes(p)));
     if (phrase) {
       return [
-        `本地启发式 · AI 币圈蓝标：互关结构（粉丝 ${fw}/关注 ${fg}）+ 养号话术「${phrase}」`,
+        `本地启发式 · 互关农场：互关结构（粉丝 ${fw}/关注 ${fg}）+ 养号话术「${phrase}」`,
       ];
     }
     // 蓝标会员 + 24h 内主页可见 ≥10 条（X 虚拟列表只渲染 10-20 行，10 条
     // 意味着整页都是今天发的）——多维度叠加时话术可以缺席。
     if (sig.isVerified && (sig.recentPosts24h ?? 0) >= 10) {
       return [
-        `本地启发式 · AI 币圈蓝标：互关结构（粉丝 ${fw}/关注 ${fg}）+ 蓝标 + 24h 可见发帖 ${sig.recentPosts24h} 条`,
+        `本地启发式 · 互关农场：互关结构（粉丝 ${fw}/关注 ${fg}）+ 蓝标 + 24h 可见发帖 ${sig.recentPosts24h} 条`,
       ];
     }
     // 蓝标 + 搞钱副业简介（2026-10-26 @ImYanBoss 样本：8k/8.7k 对称互关 +
     // 蓝标 + 「副业探索 | 股票研究 | 根据 Mi 姐秘籍做了个网站」——不写回关
-    // 话术的变种）。单看对称互关或蓝标都会误伤大量正常用户，三个维度
-    // 相乘才判。蓝标字段在部分页面的 fiber 形状下可能取不到，因此超大
+    // 话术的变种）。蓝标字段在部分页面的 fiber 形状下可能取不到，因此超大
     // 对称网络（两侧 ≥5000）不依赖蓝标——那个规模的对称互关本身就是农场
     // 形状，正常用户极少经营 5k+ 的 1:1 关注网。
     if (sig.isVerified || (fw >= 5000 && fg >= 5000)) {
       const money = MONEY_MARKERS.find((m) => texts.some((t) => t.includes(m)));
       if (money) {
         return [
-          `本地启发式 · AI 币圈蓝标：互关结构（粉丝 ${fw}/关注 ${fg}）${sig.isVerified ? " + 蓝标" : ""} + 搞钱副业简介「${money}」`,
+          `本地启发式 · 互关农场：互关结构（粉丝 ${fw}/关注 ${fg}）${sig.isVerified ? " + 蓝标" : ""} + 搞钱副业简介「${money}」`,
         ];
       }
       // 诊断：互关结构成立但三变体都差一条腿时打到控制台，便于用户回报
       // 校准（只在 profile 页头打，频率低）。
       console.debug(
-        "[MXGA] aifarm near-miss",
+        "[MXGA] farm heuristic near-miss",
         sig.handle,
         JSON.stringify({
           followers: fw,
@@ -164,7 +181,7 @@ export function matchAifarmHeuristic(sig: Signals): string[] | null {
   // 通道 C：问候模板刷屏（agent 自动回复），行为指纹不依赖年龄/发帖量。
   const flood = greetingFlood(sig.recentTweets);
   if (flood) {
-    return [`本地启发式 · AI 币圈蓝标：${flood}`];
+    return [`本地启发式 · 养号农场：${flood}`];
   }
   // 通道 C'：回复区表面的同一问候模板复现（本机模板记忆计数）。
   if (
@@ -173,7 +190,7 @@ export function matchAifarmHeuristic(sig: Signals): string[] | null {
     GREETING_RE.test(norm(sig.triggeringComment))
   ) {
     return [
-      `本地启发式 · AI 币圈蓝标：同一问候模板在本机已复现 ${sig.templateRepeats} 次`,
+      `本地启发式 · 养号农场：同一问候模板在本机已复现 ${sig.templateRepeats} 次`,
     ];
   }
 
@@ -188,7 +205,7 @@ export function matchAifarmHeuristic(sig: Signals): string[] | null {
     const vertical = FARM_VERTICALS.find((k) => bio.includes(k));
     if (vertical) {
       return [
-        `本地启发式 · AI 币圈蓝标：注册 ${age} 天发帖 ${posts} 条（日均 ${Math.round(perDay)}）+ 简介垂直词「${vertical}」`,
+        `本地启发式 · 养号农场：注册 ${age} 天发帖 ${posts} 条（日均 ${Math.round(perDay)}）+ 简介垂直词「${vertical}」`,
       ];
     }
   }
@@ -206,7 +223,7 @@ export function matchAifarmHeuristic(sig: Signals): string[] | null {
   const phrase = FARMING_PHRASES.find((p) => texts.some((t) => t.includes(p)));
   if (!phrase) return null;
   return [
-    `本地启发式 · AI 币圈蓝标：注册 ${age} 天发帖 ${posts} 条（日均 ${Math.round(perDay)}）+ 养号话术「${phrase}」`,
+    `本地启发式 · 养号农场：注册 ${age} 天发帖 ${posts} 条（日均 ${Math.round(perDay)}）+ 养号话术「${phrase}」`,
   ];
 }
 

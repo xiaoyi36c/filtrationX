@@ -31,7 +31,7 @@ import { readBridgeUser } from "../lib/x-user-bridge";
 import { LIST_KEY, WL_KEY } from "../lib/list-sync";
 import { type IndexEntry, isWhitelisted, lookupLocal, warmLocalIndex } from "../lib/local-index";
 import { matchLocalRules, warmRuleConfig } from "../lib/local-rules";
-import { matchAifarmHeuristic, matchPromoFlood } from "../lib/aifarm-heuristic";
+import { farmCategoryOf, matchFarmHeuristic, matchPromoFlood } from "../lib/farm-heuristic";
 import {
   LOCAL_WL_KEY,
   addLocalWhitelist,
@@ -1478,32 +1478,33 @@ export default defineContentScript({
           return;
         }
 
-        // 3.5 Built-in heuristics (「AI 币圈蓝标」+ 营销引流): young account +
-        //     inhuman posting volume + engagement-farming bio phrases, or a
-        //     greeting-template flood (agent auto-replier), or a follow-back
-        //     farm, or a promo wall. Ranked ABOVE the cache, same as the
-        //     local index: a cached legit/uncertain verdict from an earlier
-        //     (pre-heuristic) visit must not mask a behavior fingerprint that
-        //     is visible right now. Hits are memoized (see spamMemo) so
-        //     single tweets of the same account — which lack the profile-wall
-        //     context — reuse the verdict instead of racing off to cache or
-        //     online AI and coming back as green 已检 ghosts.
+        // 3.5 Built-in heuristics (养号/互关农场 → crypto|marketing, 电商促销
+        //     墙 → marketing): young account + inhuman posting volume +
+        //     engagement-farming bio phrases, or a greeting-template flood
+        //     (agent auto-replier), or a follow-back farm, or a promo wall.
+        //     Ranked ABOVE the cache, same as the local index: a cached
+        //     legit/uncertain verdict from an earlier (pre-heuristic) visit
+        //     must not mask a behavior fingerprint that is visible right now.
+        //     Hits are memoized (see spamMemo) so single tweets of the same
+        //     account — which lack the profile-wall context — reuse the
+        //     verdict instead of racing off to cache or online AI and coming
+        //     back as green 已检 ghosts.
         const hitArt0 = articleOf(anchor);
         sig.templateRepeats = await noteTemplate(
           sig,
           Date.now(),
           hitArt0 ? articleStatusId(hitArt0) : null,
         );
-        const aifarm = matchAifarmHeuristic(sig);
-        const promo = aifarm ? null : matchPromoFlood(sig);
-        const hit = aifarm
+        const farm = matchFarmHeuristic(sig);
+        const promo = farm ? null : matchPromoFlood(sig);
+        const hit = farm
           ? {
               verdict: {
                 label: "spam",
                 confidence: 0.9,
-                reasons: aifarm,
+                reasons: farm,
               } as Verdict,
-              category: "aifarm" as const,
+              category: farmCategoryOf(sig),
             }
           : promo
             ? {

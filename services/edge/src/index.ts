@@ -356,7 +356,7 @@ type Signals = z.infer<typeof Signals>;
 // Canonical spam category taxonomy. Stored in accounts.category, published in
 // the lite artifact, and used by the extension's per-category action policy
 // (e.g. auto-block porn bots but only badge marketing accounts).
-const SPAM_CATEGORIES = ["porn", "crypto", "gambling", "resource", "marketing", "aifarm", "other"] as const;
+const SPAM_CATEGORIES = ["porn", "crypto", "gambling", "resource", "marketing", "other"] as const;
 type SpamCategory = (typeof SPAM_CATEGORIES)[number];
 
 // Single-char codes used in the lite artifact to keep entries tiny.
@@ -366,7 +366,6 @@ const CATEGORY_CODE: Record<SpamCategory, string> = {
   gambling: "g",
   resource: "r",
   marketing: "m",
-  aifarm: "a",
   other: "o",
 };
 
@@ -511,14 +510,15 @@ const SYSTEM = `You classify X (Twitter) accounts ONLY for spam / porn-advertisi
   strict reply-spam evidence there.
 - category (required when label is spam/porn_bot/likely_spam): the dominant
   spam business — "porn" (sexual solicitation/porn bots), "crypto" (coins,
-  trading, airdrops, stocks), "gambling" (casino/betting), "resource" (netdisk
-  / pirated-resource bait), "marketing" (ads, follower-farming, promo matrix,
-  redirect bait for generic promotion), "aifarm" (blue-check AI/crypto scam
-  farmers: AI-generated avatars and content, fake-camaro greeting scripts
-  like "浇朋友/走个面儿/串门", 🤣😂 filler replies to strangers, bio mixing
-  crypto/AI/web3/stocks, automated engagement-farming for token gains),
+  trading, airdrops, stocks; ALSO blue-check AI/crypto engagement-farm
+  accounts: AI-generated avatars and content, fake-camaraderie scripts like
+  "浇朋友/走个面儿", 🤣😂 filler replies to strangers, bios mixing crypto/
+  AI/web3/stocks/side-hustle "秘籍", follow-back patrols for token gains),
+  "gambling" (casino/betting), "resource" (netdisk/pirated-resource bait),
+  "marketing" (ads, follower-farming, promo matrix, redirect bait for generic
+  promotion; greeting-template auto-repliers, e-commerce coupon walls),
   "other" (none of the above).
-Return ONLY JSON: {"label":"spam|porn_bot|likely_spam|uncertain|legit","confidence":<0..1>,"reasons":[1-6 short strings],"category":"porn|crypto|gambling|resource|marketing|aifarm|other"}`;
+Return ONLY JSON: {"label":"spam|porn_bot|likely_spam|uncertain|legit","confidence":<0..1>,"reasons":[1-6 short strings],"category":"porn|crypto|gambling|resource|marketing|other"}`;
 
 function hash(s: string): string {
   let h = 5381;
