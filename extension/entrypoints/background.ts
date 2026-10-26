@@ -464,7 +464,6 @@ async function pumpFollowQueue(): Promise<void> {
         );
       }
     }
-    }
   } finally {
     followQueuePumping = false;
   }
