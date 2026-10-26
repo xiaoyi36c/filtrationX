@@ -325,24 +325,70 @@ async function pumpFollowQueue(): Promise<void> {
           await saveFollowQueue(q);
           return;
         } else {
-          q.lastError =
-            res.status === 429
-              ? "限流（429）——X 要求放慢速度"
-              : (res.reason ?? (res.status ? `X 返回 ${res.status}（可能已关注）` : "关注未执行"));
-          pushFollowLog(q, { h: item.h, n: item.n, ok: false, note: q.lastError });
-          // 限流熔断只看 retryable（429/5xx 等）。
-          if (res.retryable) failStreak++;
-          // 但「已关注」/登录态失效这类一次性失败也不该无限跑：ct0 过期时
-          // 每条都是 403 且 retryable=false，到线就停（已在 X 端手动关注的
-          // 账号多的用户可能正常触发——阈值放宽到 20，停了也能断点续跑）。
-          else deadStreak++;
-          if (deadStreak >= FOLLOW_MAX_DEAD_STREAK) {
-            q.running = false;
-            q.finishedAt = Date.now();
-            q.lastError = `连续 ${deadStreak} 次失败（多为已关注，或登录态已失效）——已暂停，刷新 x.com 后重新开始可从断点继续`;
-            pushFollowLog(q, { ok: false, note: `连续 ${deadStreak} 次失败——队列暂停` });
-            await saveFollowQueue(q);
-            return;
+          // 429 有歧义：X 对「不存在的账号」也常统一返回 429（风控掩盖账号
+          // 存在性）——先用只读查询核实，别把账号不存在误报成限流
+          // （2026-10-27 用户实测 x.com/tiaotiaosheep）。
+          let verifiedDead = false;
+          let deadReason = "";
+          if (res.status === 429 && worker?.tabId) {
+            try {
+              let settled = false;
+              const v = (await Promise.race([
+                chrome.tabs
+                  .sendMessage(worker.tabId, { type: "follow_verify", handle: item.h })
+                  .then((r) => {
+                    settled = true;
+                    return r as { exists?: boolean | null; reason?: string };
+                  }),
+                new Promise<null>((resolve) => {
+                  setTimeout(() => {
+                    if (!settled) resolve(null);
+                  }, 30_000);
+                }),
+              ])) as { exists?: boolean | null; reason?: string } | null;
+              if (v && v.exists === false) {
+                verifiedDead = true;
+                deadReason = v.reason ?? "账号不存在（经查询证实）";
+              }
+            } catch {
+              /* 查询失败按限流处理 */
+            }
+          }
+          if (verifiedDead) {
+            q.invalid = (q.invalid ?? 0) + 1;
+            q.lastError = `${deadReason}：@${item.h}`;
+            deadStreak = 0;
+            pushFollowLog(q, { h: item.h, n: item.n, ok: false, note: `${deadReason}（X 返回 429 下核实）` });
+            try {
+              const { addInvalid } = await import("../lib/flj-sync");
+              await addInvalid([item.h]);
+            } catch {
+              // 记录失败不影响队列
+            }
+          } else {
+            q.lastError =
+              res.status === 429
+                ? "限流（429）——X 要求放慢速度"
+                : (res.reason ?? (res.status ? `X 返回 ${res.status}（可能已关注）` : "关注未执行"));
+            pushFollowLog(q, { h: item.h, n: item.n, ok: false, note: q.lastError });
+            // 限流熔断只看 retryable（429/5xx 等）。
+            if (res.retryable) {
+              failStreak++;
+            } else {
+              // 但「已关注」/登录态失效这类一次性失败也不该无限跑：ct0 过期
+              // 时每条都是 403 且 retryable=false，到线就停（已在 X 端手动
+              // 关注的账号多的用户可能正常触发——阈值放宽到 20，停了也能
+              // 断点续跑）。
+              deadStreak++;
+              if (deadStreak >= FOLLOW_MAX_DEAD_STREAK) {
+                q.running = false;
+                q.finishedAt = Date.now();
+                q.lastError = `连续 ${deadStreak} 次失败（多为已关注，或登录态已失效）——已暂停，刷新 x.com 后重新开始可从断点继续`;
+                pushFollowLog(q, { ok: false, note: `连续 ${deadStreak} 次失败——队列暂停` });
+                await saveFollowQueue(q);
+                return;
+              }
+            }
           }
         }
       }

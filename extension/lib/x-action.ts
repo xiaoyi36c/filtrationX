@@ -244,10 +244,11 @@ interface XhrResult {
  * XHR is callback-based, so we construct the Promise ourselves, in OUR
  * compartment, and never touch a foreign one.
  */
-function xhrPost(
+function xhrRequest(
+  method: "GET" | "POST",
   url: string,
   headers: Record<string, string>,
-  body: string,
+  body: string | null,
   timeoutMs: number,
 ): Promise<XhrResult> {
   return new Promise<XhrResult>((resolve, reject) => {
@@ -259,7 +260,7 @@ function xhrPost(
       return;
     }
     try {
-      xhr.open("POST", url, true);
+      xhr.open(method, url, true);
       // Send the x.com session cookies (ct0 among them). Same-origin from the
       // content script's point of view, so no CORS preflight.
       xhr.withCredentials = true;
@@ -286,10 +287,70 @@ function xhrPost(
       xhr.onerror = () => reject(new Error("网络错误"));
       xhr.ontimeout = () => reject(new Error(`请求超时（${timeoutMs}ms）`));
       xhr.onabort = () => reject(new Error("请求被中止"));
-      xhr.send(body);
+      if (body != null) xhr.send(body);
+      else xhr.send();
     } catch (e) {
       // e.g. the page CSP blocks the request, or open()/send() throws.
       reject(e);
+    }
+  });
+}
+
+function xhrPost(
+  url: string,
+  headers: Record<string, string>,
+  body: string,
+  timeoutMs: number,
+): Promise<XhrResult> {
+  return xhrRequest("POST", url, headers, body, timeoutMs);
+}
+
+export interface UserLookupResult {
+  status: number;
+  /** true=存在 false=确认不存在/封禁 null=无法判断（限流/网络等）。 */
+  exists: boolean | null;
+  reason?: string;
+}
+
+/**
+ * 只读查询账号是否存在（v1.1 users/show.json，公开 bearer + 会话 ct0）。
+ *
+ * 用途：follow 返回 429 时，X 对「不存在账号」也常返回 429（风控统一响应），
+ * 状态码无法区分真限流和账号失效——写队列据此核实，确凿不存在的按失效
+ * 记档，不再误报成限流。GET 与写动作共用同一把锁，避免交叉触发风控。
+ */
+export async function lookupUser(handle: string): Promise<UserLookupResult> {
+  return withLock(async () => {
+    const name = normalizeHandle(handle);
+    if (!name || !/^[A-Za-z0-9_]{1,15}$/.test(name)) {
+      return { status: 0, exists: false, reason: "handle 非法" };
+    }
+    const csrf = ct0();
+    if (!csrf) return { status: 0, exists: null, reason: "未取到 ct0" };
+    try {
+      const res = await xhrRequest(
+        "GET",
+        `${apiOrigin()}/i/api/1.1/users/show.json?screen_name=${encodeURIComponent(name)}`,
+        { authorization: FALLBACK_X_BEARER, "x-csrf-token": csrf, accept: "application/json" },
+        null,
+        15_000,
+      );
+      if (res.status === 200) return { status: 200, exists: true };
+      const cls = classifyActionBody(res.status, res.text());
+      if (cls.kind === "invalid") {
+        return {
+          status: res.status,
+          exists: false,
+          ...(cls.reason ? { reason: cls.reason } : {}),
+        };
+      }
+      return {
+        status: res.status,
+        exists: null,
+        ...(cls.reason ? { reason: cls.reason } : { reason: `HTTP ${res.status}` }),
+      };
+    } catch (e) {
+      return { status: 0, exists: null, reason: errText(e) };
     }
   });
 }

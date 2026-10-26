@@ -534,6 +534,21 @@ export default defineContentScript({
         return true;
       },
     );
+    // ---- 429 核实：只读查询账号是否存在（X 对不存在账号也常回 429）----
+    chrome.runtime.onMessage.addListener(
+      (msg: { type?: string; handle?: string }, _s, sendResponse) => {
+        if (msg?.type !== "follow_verify") return;
+        void (async () => {
+          try {
+            const { lookupUser } = await import("../lib/x-action");
+            sendResponse(await lookupUser(msg.handle ?? ""));
+          } catch {
+            sendResponse({ status: 0, exists: null });
+          }
+        })();
+        return true;
+      },
+    );
     // ---- X 原生拉黑列表同步（二开）：只读分页 GET blocks/list.json ----
     chrome.runtime.onMessage.addListener(
       (msg: { type?: string; cursor?: string }, _s, sendResponse) => {

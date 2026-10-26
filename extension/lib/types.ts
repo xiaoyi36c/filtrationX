@@ -139,6 +139,7 @@ export type BgRequest =
   | { type: "flj_status" }
   | { type: "follow_queue_start"; max: number; skipNegative?: boolean }
   | { type: "follow_queue_stop" }
+  | { type: "follow_verify"; handle: string }
   | { type: "follow_queue_status" }
   // x.com 执行器收到的一个关注目标（后台泵逐个派发）。
   | { type: "follow_queue_exec"; item: { h: string; n?: string } };
