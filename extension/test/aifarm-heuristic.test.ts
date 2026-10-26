@@ -76,3 +76,77 @@ test("话术在昵称里也算", () => {
   const r = matchAifarmHeuristic(sig({ bio: "", displayName: "币圈互关哥" }));
   assert.ok(r);
 });
+
+// ---- 通道 C：问候模板刷屏（agent 自动回复，不限年龄）----
+
+test("主页近采样 ≥40% 问候模板 → 命中（老号也判）", () => {
+  const wall = Array.from({ length: 8 }, (_, i) => `你好呀，我是小助手${i}，很高兴认识你！`);
+  wall.push("今天天气不错", "吃了吗朋友们");
+  const r = matchAifarmHeuristic(
+    sig({ accountAgeDays: 500, statusesCount: 900, recentTweets: wall }),
+  );
+  assert.ok(r, "greeting flood must hit regardless of age");
+  assert.match(r?.[0] ?? "", /问候模板/);
+});
+
+test("近重复开场白 ≥4 条 → 命中", () => {
+  const wall = [
+    "你好呀，我是小八见，很高兴认识你！",
+    "你好呀，我是小八见，很高兴认识你！",
+    "你好呀，我是小八见，很高兴认识你！😊",
+    "你好呀，我是小八见，很高兴认识你！哈哈",
+    "今天天气不错",
+    "周末愉快",
+  ];
+  const r = matchAifarmHeuristic(
+    sig({ accountAgeDays: 120, statusesCount: 2000, recentTweets: wall }),
+  );
+  assert.ok(r);
+  assert.match(r?.[0] ?? "", /模板/);
+});
+
+test("回复区模板记忆复现 ≥2 次 + 问候语 → 命中", () => {
+  const r = matchAifarmHeuristic(
+    sig({
+      accountAgeDays: 200,
+      statusesCount: 500,
+      recentTweets: [],
+      triggeringComment: "你好呀，我是小八见，很高兴认识你！",
+      templateRepeats: 3,
+    }),
+  );
+  assert.ok(r);
+});
+
+test("正常内容主页不误判（问候偶发 + 多样内容）", () => {
+  const wall = [
+    "你好呀，我是新人博主，很高兴认识你",
+    "今天试了新餐厅，人均一百",
+    "读完了《置身事内》，推荐",
+    "健身第 30 天打卡",
+    "这部电影文艺片值得二刷",
+    "周末爬山去了",
+    "路由器终于换了，WiFi 满速",
+  ];
+  assert.equal(
+    matchAifarmHeuristic(sig({ accountAgeDays: 500, statusesCount: 900, recentTweets: wall })),
+    null,
+  );
+});
+
+test("采样不足 6 条不判通道 C（宁漏勿误）", () => {
+  assert.equal(
+    matchAifarmHeuristic(
+      sig({
+        accountAgeDays: 500,
+        statusesCount: 900,
+        recentTweets: [
+          "你好呀，我是小八见，很高兴认识你！",
+          "你好呀，我是小八见，很高兴认识你！",
+          "你好呀，我是小八见，很高兴认识你！",
+        ],
+      }),
+    ),
+    null,
+  );
+});

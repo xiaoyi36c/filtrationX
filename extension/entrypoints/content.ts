@@ -1518,9 +1518,18 @@ export default defineContentScript({
         }
 
         // 4.6 Built-in aifarm heuristic (「AI 币圈蓝标」): young account +
-        //     inhuman posting volume + engagement-farming bio phrases. Same
-        //     render path as rule hits, so the per-category policy (default
-        //     badge-only) and reply-scope gating apply unchanged.
+        //     inhuman posting volume + engagement-farming bio phrases, or a
+        //     greeting-template flood (agent auto-replier). Same render path
+        //     as rule hits, so the per-category policy (default badge-only)
+        //     and reply-scope gating apply unchanged. The template-memory
+        //     count feeds the reply-surface lane; recording here (instead of
+        //     only on the online path) is idempotent per tweet id.
+        const hitArt0 = articleOf(anchor);
+        sig.templateRepeats = await noteTemplate(
+          sig,
+          Date.now(),
+          hitArt0 ? articleStatusId(hitArt0) : null,
+        );
         const aifarm = matchAifarmHeuristic(sig);
         if (aifarm) {
           renderLocalIndex(
