@@ -461,9 +461,10 @@ async function pumpFollowQueue(): Promise<void> {
       //   第 FOLLOW_PAUSE_EVERY 个关注成功 → 休整 2 分钟再继续；
       //   其它 → 正常 20s 间隔。
       if (outcome === "fail" && res.retryable) {
+        // 2026-10-27 用户要求：真限流（429/5xx）一律等 5 分钟再继续。
         const go = await followPacedWait(
-          Math.max(res.retryAfterMs ?? 0, res.status === 429 ? 45_000 : 8_000),
-          (l) => `限流冷却中，约 ${Math.ceil(l / 1000)}s 后自动继续…`,
+          Math.max(res.retryAfterMs ?? 0, 300_000),
+          (l) => `限流冷却中，约 ${Math.ceil(l / 60_000)} 分钟后自动继续…`,
         );
         if (!go) return; // 用户已停止
       } else if (outcome !== "skip") {
