@@ -290,7 +290,7 @@ async function pumpFollowQueue(): Promise<void> {
           h: item.h,
           n: item.n,
           ok: true,
-          note: res.ok ? "关注成功" : "跳过（自己/受保护）",
+          note: res.ok ? "关注成功" : "跳过（目标是自己）",
         });
         // 成功关注 → 记入本机已关注名单（UI 圆环/标记/去重用）。
         if (res.ok && item?.h) {

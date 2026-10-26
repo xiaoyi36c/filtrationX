@@ -515,10 +515,13 @@ export default defineContentScript({
               return;
             }
             const viewer = viewerHandle() ?? lastViewer;
+            // 注意：follow 不检查 protectedAccount（本地白名单）。已关注的
+            // 账号会被「关注白名单」机制自动加白——若沿用拉黑队列的保护
+            // 检查，一键关注会对每一个已关注账号报「跳过（受保护）」，队列
+            // 永远推不动。关注是用户显式发起的正面动作，保护语义不适用；
+            // 只需排除自己。已关注的重复尝试由 X 的 429 + 核实补记处理。
             const allowed = () =>
-              settings.enabled &&
-              item.h.toLowerCase() !== (viewer ?? "").toLowerCase() &&
-              !protectedAccount({ handle: item.h });
+              settings.enabled && item.h.toLowerCase() !== (viewer ?? "").toLowerCase();
             if (!allowed()) {
               sendResponse({ ok: false, retryable: false, skipped: true });
               return;
