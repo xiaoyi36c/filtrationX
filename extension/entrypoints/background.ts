@@ -180,6 +180,7 @@ async function runBlocksSync(): Promise<void> {
   if (blocksSyncRunning) return;
   blocksSyncRunning = true;
   try {
+    let rateLimitRetries = 0;
     for (;;) {
       const {
         getXBlocksData,
@@ -211,18 +212,39 @@ async function runBlocksSync(): Promise<void> {
       } catch {
         res = null;
       }
-      st.pages++;
       if (!res || res.error) {
+        // 限流不算失败：等一分钟原地重试同一游标（最多 3 次），游标保留，
+        // 用户之后再点「重新同步」也能从断点继续。
+        if (res?.error === "rate_limited" && rateLimitRetries < 3) {
+          rateLimitRetries++;
+          st.lastError = null;
+          await saveXBlocksSyncState(st);
+          await blockQueueSleep(60_000);
+          continue;
+        }
         st.running = false;
         st.finishedAt = Date.now();
         st.lastError = !res ? "x.com 标签页不可用，请打开 x.com 后重试" : (res.error ?? "unknown");
         await saveXBlocksSyncState(st);
         return;
       }
+      rateLimitRetries = 0;
+      st.pages++;
       const data = await getXBlocksData();
+      // 按 u/h 去重（含历史遗留的重复项）：blocks/list 按拉黑时间倒序，
+      // 从头重拉的旧实现把重复账号一次次追加进来，count 因此虚高。
+      const seen = new Set<string>();
+      data.users = data.users.filter((x) => {
+        const k = x.u || x.h;
+        if (!k || seen.has(k)) return false;
+        seen.add(k);
+        return true;
+      });
       for (const u of res.users ?? []) {
         if (data.users.length >= X_BLOCKS_MAX_USERS) break;
-        if (!u.u && !u.h) continue;
+        const k = u.u || u.h;
+        if (!k || seen.has(k)) continue;
+        seen.add(k);
         data.users.push({ u: u.u, h: u.h });
       }
       data.syncedAt = Date.now();
@@ -470,8 +492,15 @@ export default defineBackground(() => {
             if (!st.running) {
               st.running = true;
               st.pages = 0;
-              st.fetched = 0;
-              st.nextCursor = "-1";
+              // 断点续传：上次因限流/标签页丢失而中断时，游标还停在断点，
+              // 就从那里继续拉，而不是每次都从第一页重拉——重拉既烧掉
+              // X 的限流额度（用户看到的「每次只同步前几页」），又会把
+              // 同一批账号重复追加进本地列表。自然跑完的任务 nextCursor
+              // 已被置 null，这里会正常从头开始。
+              if (!st.nextCursor || st.nextCursor === "-1") {
+                st.nextCursor = "-1";
+                st.fetched = 0;
+              }
               st.lastError = null;
               st.finishedAt = null;
               await saveXBlocksSyncState(st);

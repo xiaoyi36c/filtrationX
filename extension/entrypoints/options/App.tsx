@@ -512,10 +512,20 @@ function LocalBlocklistCard({ localCount }: { localCount: number }) {
 
   useEffect(() => {
     let alive = true;
+    let loaded = false;
+    let wasRunning = false;
     const tick = async () => {
       const r = await bg({ type: "blocks_sync_status" });
-      if (alive && r?.ok) setSync(r.data as unknown as XBlocksSyncState);
-      if (alive) setData(await getXBlocksData());
+      if (!alive || !r?.ok) return;
+      const s = r.data as unknown as XBlocksSyncState;
+      setSync(s);
+      // 全量数据只在需要时读取（首次进入 / 同步进行中 / 同步刚结束）：
+      // 几万条记录每 2 秒反序列化一次会把整页拖卡。
+      if (!loaded || s.running || wasRunning) {
+        setData(await getXBlocksData());
+        loaded = true;
+      }
+      wasRunning = s.running;
     };
     void tick();
     const t = setInterval(() => void tick(), 2000);
@@ -610,10 +620,19 @@ function XBlocksPage() {
 
   useEffect(() => {
     let alive = true;
+    let loaded = false;
+    let wasRunning = false;
     const tick = async () => {
       const r = await bg({ type: "blocks_sync_status" });
-      if (alive && r?.ok) setSync(r.data as unknown as XBlocksSyncState);
-      if (alive) setData(await getXBlocksData());
+      if (!alive || !r?.ok) return;
+      const s = r.data as unknown as XBlocksSyncState;
+      setSync(s);
+      // 同上：全量读取只发生在首次进入、同步进行中、同步刚结束时。
+      if (!loaded || s.running || wasRunning) {
+        setData(await getXBlocksData());
+        loaded = true;
+      }
+      wasRunning = s.running;
     };
     void tick();
     const t = setInterval(() => void tick(), 2000);
@@ -661,6 +680,7 @@ function XBlocksPage() {
   };
 
   const users = data?.users ?? [];
+  const [limit, setLimit] = useState(200);
   const rows = useMemo(
     () =>
       users.filter((u) =>
@@ -668,6 +688,9 @@ function XBlocksPage() {
       ),
     [users, q],
   );
+  // 几万行 <tr>（头像 + 两个链接 + 按钮）一次性塞进 DOM 会把页面卡死；
+  // 只渲染前 limit 行，用「显示更多」按需追加。
+  const shown = useMemo(() => rows.slice(0, limit), [rows, limit]);
   const syncing = !!sync?.running;
 
   return (
@@ -679,7 +702,10 @@ function XBlocksPage() {
         <input
           aria-label={t("page.xblocks.title")}
           value={q}
-          onChange={(e) => setQ(e.target.value)}
+          onChange={(e) => {
+            setQ(e.target.value);
+            setLimit(200);
+          }}
           placeholder={t("xb.search")}
           className="w-full max-w-[320px] rounded-md border border-border-2 bg-transparent px-3 py-2 text-[13px] outline-none transition focus:border-accent"
         />
@@ -712,7 +738,7 @@ function XBlocksPage() {
               </tr>
             </thead>
             <tbody>
-              {rows.map((u) => {
+              {shown.map((u) => {
                 const key = u.u || u.h;
                 return (
                   <tr key={key} className={trHover}>
@@ -752,6 +778,15 @@ function XBlocksPage() {
               })}
             </tbody>
           </table>
+        </div>
+      )}
+      {rows.length > shown.length && (
+        <div className="mt-3">
+          <Btn
+            onClick={() => setLimit((n) => n + 500)}
+          >
+            显示更多（还有 {(rows.length - shown.length).toLocaleString("zh-CN")} 个）
+          </Btn>
         </div>
       )}
       {data && data.count > rows.length && (
