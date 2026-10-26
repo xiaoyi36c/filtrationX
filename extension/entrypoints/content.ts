@@ -1436,6 +1436,47 @@ export default defineContentScript({
           return;
         }
 
+        // 3.5 Built-in aifarm heuristic (「AI 币圈蓝标」): young account +
+        //     inhuman posting volume + engagement-farming bio phrases, or a
+        //     greeting-template flood (agent auto-replier). Ranked ABOVE the
+        //     cache, same as the local index: a cached legit/uncertain verdict
+        //     from an earlier (pre-heuristic) visit must not mask a behavior
+        //     fingerprint that is visible right now — the wall-of-greetings
+        //     account kept its cached "legit" forever because its signals
+        //     never change (2026-10-26 实测漏判根因). The template-memory
+        //     count feeds the reply-surface lane; recording here (instead of
+        //     only on the online path) is idempotent per tweet id.
+        const hitArt0 = articleOf(anchor);
+        sig.templateRepeats = await noteTemplate(
+          sig,
+          Date.now(),
+          hitArt0 ? articleStatusId(hitArt0) : null,
+        );
+        const aifarm = matchAifarmHeuristic(sig);
+        if (aifarm) {
+          renderLocalIndex(
+            anchor,
+            key,
+            sig,
+            {
+              userId: sig.userId ?? "",
+              handle: sig.handle,
+              verdict: {
+                label: "spam",
+                confidence: 0.9,
+                reasons: aifarm,
+              },
+              category: "aifarm",
+              tier: "auto",
+              source: "community",
+              updatedAt: new Date().toISOString(),
+            },
+            "rule",
+            ctx,
+          );
+          return;
+        }
+
         // 4. v0.4-era persistent cache, read-only since v0.5 (spam reused
         //    as-is; legit/uncertain only if signals unchanged so new evidence
         //    can still re-trigger).
@@ -1508,44 +1549,6 @@ export default defineContentScript({
               },
               category: ruleHit.category,
               tier: "auto", // rule hits are auto tier — reply-scope gated
-              source: "community",
-              updatedAt: new Date().toISOString(),
-            },
-            "rule",
-            ctx,
-          );
-          return;
-        }
-
-        // 4.6 Built-in aifarm heuristic (「AI 币圈蓝标」): young account +
-        //     inhuman posting volume + engagement-farming bio phrases, or a
-        //     greeting-template flood (agent auto-replier). Same render path
-        //     as rule hits, so the per-category policy (default badge-only)
-        //     and reply-scope gating apply unchanged. The template-memory
-        //     count feeds the reply-surface lane; recording here (instead of
-        //     only on the online path) is idempotent per tweet id.
-        const hitArt0 = articleOf(anchor);
-        sig.templateRepeats = await noteTemplate(
-          sig,
-          Date.now(),
-          hitArt0 ? articleStatusId(hitArt0) : null,
-        );
-        const aifarm = matchAifarmHeuristic(sig);
-        if (aifarm) {
-          renderLocalIndex(
-            anchor,
-            key,
-            sig,
-            {
-              userId: sig.userId ?? "",
-              handle: sig.handle,
-              verdict: {
-                label: "spam",
-                confidence: 0.9,
-                reasons: aifarm,
-              },
-              category: "aifarm",
-              tier: "auto",
               source: "community",
               updatedAt: new Date().toISOString(),
             },
