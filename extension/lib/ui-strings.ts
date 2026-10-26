@@ -12,7 +12,7 @@ export const D: Record<string, Row> = {
   "nav.overview": { zh: "概览", en: "Overview", ja: "概要" },
   "nav.blocklist": { zh: "处理记录", en: "Records", ja: "処理記録" },
   "nav.xblocks": { zh: "拉黑同步", en: "Block sync", ja: "ブロック同期" },
-  "nav.flj": { zh: "博主榜单", en: "Rankings", ja: "ランキング" },
+  "nav.flj": { zh: "NSFW&成人", en: "NSFW & Adult", ja: "NSFW&成人" },
   "nav.cache": { zh: "检测缓存", en: "Cache", ja: "判定キャッシュ" },
   "nav.settings": { zh: "设置", en: "Settings", ja: "設定" },
   "nav.language": { zh: "语言", en: "Language", ja: "言語" },
@@ -28,7 +28,7 @@ export const D: Record<string, Row> = {
   "page.blocklist.title": { zh: "处理记录", en: "Records", ja: "処理記録" },
   "page.blocklist.sub": { zh: "本机处理过的账号与原因 · 仅存本机", en: "Accounts processed locally and why · local only", ja: "処理したアカウントと理由 · 端末内のみ" },
   "page.xblocks.title": { zh: "X 原生拉黑列表", en: "Native X block list", ja: "X ネイティブブロック一覧" },
-  "page.flj.title": { zh: "博主榜单", en: "Blogger rankings", ja: "ブロガーランキング" },
+  "page.flj.title": { zh: "NSFW&成人榜单", en: "NSFW & Adult rankings", ja: "NSFW&成人ランキング" },
   "page.flj.sub": {
     zh: "从多个公开榜单同步博主并一键关注 · 名单仅存本机 · 关注走你自己的 X 登录态",
     en: "Sync bloggers from public rankings and follow in a queue · list stays local · uses your own X session",
