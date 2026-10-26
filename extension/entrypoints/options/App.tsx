@@ -87,6 +87,7 @@ import {
   FLJ_CATEGORY_ZH,
   FLJ_EXTRA_SOURCES,
   fljCatLabel,
+  fljTagLabel,
   type FljData,
   type FljSourceResult,
   type FljSyncProgress,
@@ -3857,6 +3858,8 @@ function FljPage() {
   const [excludeFushi, setExcludeFushi] = useState(false);
   // 失效账号（X 证实或数据源预标）默认不进表格——浏览榜单时它们是噪音。
   const [hideInvalid, setHideInvalid] = useState(true);
+  // 已关注同样可一键隐藏：刷榜单找新目标时，已关注过的是已处理完的噪音。
+  const [hideFollowed, setHideFollowed] = useState(false);
   const [batch, setBatch] = useState(50);
   const [msg, setMsg] = useState<{ text: string; ok: boolean } | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
@@ -3910,11 +3913,12 @@ function FljPage() {
     return bloggers.filter((b) => {
       if (excludeFushi && b.fushi) return false;
       if (hideInvalid && (invalid.has(b.h) || b.dead)) return false;
+      if (hideFollowed && followed.has(b.h)) return false;
       if (cat !== "all" && !(b.cats ?? []).includes(cat)) return false;
       if (s && !`${b.h} ${b.n ?? ""}`.toLowerCase().includes(s)) return false;
       return true;
     });
-  }, [bloggers, excludeFushi, hideInvalid, invalid, cat, search]);
+  }, [bloggers, excludeFushi, hideInvalid, hideFollowed, invalid, followed, cat, search]);
   const shown = rows.slice(0, limit);
 
   const startFollow = async () => {
@@ -4096,6 +4100,17 @@ function FljPage() {
                 />
                 隐藏失效
               </label>
+              <label className="flex cursor-pointer items-center gap-1.5">
+                <input
+                  type="checkbox"
+                  checked={hideFollowed}
+                  onChange={(e) => {
+                    setHideFollowed(e.target.checked);
+                    setLimit(200);
+                  }}
+                />
+                隐藏已关注
+              </label>
               <label className="flex items-center gap-1.5">
                 榜单
                 <select
@@ -4182,10 +4197,11 @@ function FljPage() {
       ) : (
         <>
           <div className="overflow-x-auto rounded-lg border border-border">
-            <table className="w-full min-w-[720px] border-collapse text-[13px]">
+            <table className="w-full min-w-[820px] border-collapse text-[13px]">
               <thead className="bg-card">
                 <tr>
                   <th className={th}>博主</th>
+                  <th className={th}>来源</th>
                   <th className={th}>评分</th>
                   <th className={th}>标签</th>
                   <th className={th}>粉丝</th>
@@ -4218,6 +4234,29 @@ function FljPage() {
                         </div>
                       </div>
                     </td>
+                    <td className={`${td} text-[12px]`}>
+                      <div className="flex flex-wrap gap-1 text-[11px]">
+                        {(b.cats ?? []).map((c) => (
+                          <span
+                            key={c}
+                            className={`rounded px-1.5 py-0.5 ${
+                              c === "boomboom" || c === "nsfw"
+                                ? "bg-accent/10 text-accent"
+                                : "bg-fg/5 text-fg-3"
+                            }`}
+                            title={
+                              c === "boomboom"
+                                ? "来自 boomboom 归档榜"
+                                : c === "nsfw"
+                                  ? "来自 NSFW.pet"
+                                  : "来自福利鉴榜单"
+                            }
+                          >
+                            {fljCatLabel(c)}
+                          </span>
+                        ))}
+                      </div>
+                    </td>
                     <td className={`${td} font-mono text-[12px]`}>
                       {typeof b.score === "number" ? b.score.toFixed(1) : "—"}
                     </td>
@@ -4248,28 +4287,27 @@ function FljPage() {
                         )}
                         {b.neg.map((n) => (
                           <span key={n} className="rounded bg-danger/15 px-1.5 py-0.5 text-danger">
-                            {NEG_TAG_ZH[n] ?? n}
+                            {fljTagLabel(n) ?? n}
                           </span>
                         ))}
                         {b.pos
                           .filter((p) => p !== "verified_real")
-                          .map((p) => (
-                            <span key={p} className="rounded bg-accent/15 px-1.5 py-0.5 text-accent">
-                              {POS_TAG_ZH[p] ?? p}
+                          .map((p) => {
+                            const label = fljTagLabel(p);
+                            return label ? (
+                              <span key={p} className="rounded bg-accent/15 px-1.5 py-0.5 text-accent">
+                                {label}
+                              </span>
+                            ) : null;
+                          })}
+                        {(b.tags ?? []).map((tag) => {
+                          const label = fljTagLabel(tag);
+                          return label ? (
+                            <span key={tag} className="rounded bg-accent/10 px-1.5 py-0.5 text-accent">
+                              {label}
                             </span>
-                          ))}
-                        {(b.tags ?? []).map((tag) => (
-                          <span key={tag} className="rounded bg-accent/10 px-1.5 py-0.5 text-accent">
-                            {tag}
-                          </span>
-                        ))}
-                        {(b.cats ?? [])
-                          .filter((c) => c !== cat)
-                          .map((c) => (
-                            <span key={c} className="rounded bg-fg/5 px-1.5 py-0.5 text-fg-3">
-                              {fljCatLabel(c)}
-                            </span>
-                          ))}
+                          ) : null;
+                        })}
                       </div>
                     </td>
                     <td className={`${td} font-mono text-[12px] text-fg-3`}>
@@ -4312,16 +4350,6 @@ function FljPage() {
     </Page>
   );
 }
-
-const NEG_TAG_ZH: Record<string, string> = {
-  stolen_photo: "盗图",
-  fake_gender: "照骗",
-  scam: "诈骗",
-};
-const POS_TAG_ZH: Record<string, string> = {
-  recommended: "推荐",
-  trusted: "可信",
-};
 
 const TABS = [
   ["overview", "nav.overview", Overview],

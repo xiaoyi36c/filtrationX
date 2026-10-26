@@ -66,6 +66,33 @@ export function fljCatLabel(id: string): string {
   return FLJ_CATEGORY_ZH[id] ?? FLJ_EXTRA_SOURCES.find((s) => s.id === id)?.label ?? id;
 }
 
+// 三个数据源的标签字段形态不一：福利鉴有英文枚举（positive_tags）+ 中文
+// 画像（account_tags）；nsfw.pet 的 tags 混着拼写错误的英文（welfre）和
+// 语言码（ja/zh）；boomboom 没有标签。直接透传会把标签列变成英文噪音墙
+// ——只显示能翻译或本身是中文的标签，其余视为噪音丢弃。
+const FLJ_TAG_ZH: Record<string, string> = {
+  verified_real: "实名",
+  recommended: "推荐",
+  trusted: "可信",
+  praised: "好评",
+  welfare: "福利",
+  welfre: "福利", // nsfw.pet 源数据拼写
+  welfere: "福利", // 同上变体
+  stolen_photo: "盗图",
+  fake_gender: "照骗",
+  scam: "诈骗",
+};
+
+/** 标签 → 展示文案；返回 null 表示噪音标签，UI 不显示。纯函数，可测。 */
+export function fljTagLabel(tag: string): string | null {
+  const t = tag.trim();
+  if (!t) return null;
+  if (FLJ_TAG_ZH[t]) return FLJ_TAG_ZH[t]!;
+  // 中文画像标签（福利博主/可线下/AV女優…）原样显示；纯 ASCII 的未知
+  // 英文标签（语言码、站点杂项）不显示。
+  return /[\u4e00-\u9fff]/.test(t) ? t : null;
+}
+
 export interface FljData {
   syncedAt: number | null;
   total: number;

@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   buildFollowQueue,
+  fljTagLabel,
   mergeCategoryResults,
   parseBoomboomArchive,
   parseNsfwPetPage,
@@ -194,4 +195,24 @@ test("mergeCategoryResults：数据源预标 dead 跨分类保留", () => {
   assert.equal(merged.length, 1);
   assert.equal(merged[0]?.dead, true);
   assert.deepEqual(merged[0]?.cats, ["boomboom", "comments"]);
+});
+
+test("fljTagLabel：已知英文/拼写变体翻译成中文，中文原样，噪音返回 null", () => {
+  // flj 英文枚举
+  assert.equal(fljTagLabel("verified_real"), "实名");
+  assert.equal(fljTagLabel("recommended"), "推荐");
+  assert.equal(fljTagLabel("praised"), "好评");
+  // nsfw.pet 拼写变体
+  assert.equal(fljTagLabel("welfre"), "福利");
+  assert.equal(fljTagLabel("welfare"), "福利");
+  // flj 中文画像标签原样
+  assert.equal(fljTagLabel("福利博主"), "福利博主");
+  assert.equal(fljTagLabel("可线下"), "可线下");
+  // 噪音：语言码 / 未知英文 / 空
+  assert.equal(fljTagLabel("ja"), null);
+  assert.equal(fljTagLabel("zh"), null);
+  assert.equal(fljTagLabel("verified"), null);
+  assert.equal(fljTagLabel(""), null);
+  // 负面枚举也能翻
+  assert.equal(fljTagLabel("stolen_photo"), "盗图");
 });
