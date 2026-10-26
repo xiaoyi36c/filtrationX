@@ -500,6 +500,15 @@ export async function fetchFljRankings(
 
 // ---- 关注队列状态 ----
 
+/** 关注日志条目（UI 实时面板用）：每个目标一条，最新在前。 */
+export interface FollowLogEntry {
+  t: number;
+  h?: string;
+  n?: string;
+  ok: boolean;
+  note: string;
+}
+
 export interface FollowQueueState {
   items: { h: string; n?: string }[];
   cursor: number;
@@ -510,6 +519,8 @@ export interface FollowQueueState {
   running: boolean;
   lastError: string | null;
   finishedAt: number | null;
+  /** 滚动日志（最新在前，后台泵裁剪上限）。 */
+  log?: FollowLogEntry[];
 }
 
 export const FOLLOW_QUEUE_KEY = "xss:follow-queue:v1";

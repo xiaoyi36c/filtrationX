@@ -3858,8 +3858,9 @@ function FljPage() {
   const [excludeFushi, setExcludeFushi] = useState(false);
   // 失效账号（X 证实或数据源预标）默认不进表格——浏览榜单时它们是噪音。
   const [hideInvalid, setHideInvalid] = useState(true);
-  // 已关注同样可一键隐藏：刷榜单找新目标时，已关注过的是已处理完的噪音。
-  const [hideFollowed, setHideFollowed] = useState(false);
+  // 已关注同样可一键隐藏（默认开）：刷榜单找新目标时，已关注过的是已处理
+  // 完的噪音。
+  const [hideFollowed, setHideFollowed] = useState(true);
   const [batch, setBatch] = useState(50);
   const [msg, setMsg] = useState<{ text: string; ok: boolean } | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
@@ -4187,6 +4188,25 @@ function FljPage() {
                 {q.lastError ? ` · ${q.lastError}` : ""}
                 {q.running ? " · 执行中" : ""}
               </p>
+            )}
+            {/* 实时日志：正在关注谁、成功/失败原因（滚动保留最近若干条）。 */}
+            {q && (q.running || (q.log ?? []).length > 0) && (
+              <div className="mt-3 max-h-44 overflow-y-auto rounded-md border border-border bg-card/50 p-2 font-mono text-[11px] leading-relaxed">
+                {q.running && q.items?.[q.cursor] && (
+                  <div className="text-accent">
+                    ▸ 正在关注 @{q.items[q.cursor].h}
+                    {q.items[q.cursor].n ? `（${q.items[q.cursor].n}）` : ""} …
+                  </div>
+                )}
+                {(q.log ?? []).map((e, i) => (
+                  <div key={`${e.t}-${i}`} className={e.ok ? "text-ok" : "text-danger"}>
+                    {new Date(e.t).toLocaleTimeString("zh-CN", { hour12: false })}{" "}
+                    {e.ok ? "✓" : "✗"}
+                    {e.h ? ` @${e.h}` : ""}
+                    {e.h && e.n ? `（${e.n}）` : ""} — {e.note}
+                  </div>
+                ))}
+              </div>
             )}
           </>
         )}

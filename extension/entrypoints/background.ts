@@ -193,6 +193,18 @@ const FOLLOW_MAX_FAIL_STREAK = 5;
 // 连续非限流失败（多为「已关注」403，也可能是 ct0 过期——后者 retryable=false
 // 触发不了限流熔断）的熔断线：到线就停，别让登录态失效时把队列全程空跑。
 const FOLLOW_MAX_DEAD_STREAK = 20;
+// 关注日志上限（最新在前裁剪）。
+const FOLLOW_LOG_MAX = 60;
+
+type FollowLogItem = { t: number; h?: string; n?: string; ok: boolean; note: string };
+
+/** 追加一条日志（最新在前），超出上限丢弃最旧。 */
+function pushFollowLog(
+  q: { log?: FollowLogItem[] },
+  e: { h?: string; n?: string; ok: boolean; note: string },
+) {
+  q.log = [{ t: Date.now(), ...e }, ...(q.log ?? [])].slice(0, FOLLOW_LOG_MAX);
+}
 
 async function pumpFollowQueue(): Promise<void> {
   if (followQueuePumping) return;
@@ -208,6 +220,10 @@ async function pumpFollowQueue(): Promise<void> {
       if (q.cursor >= q.items.length) {
         q.running = false;
         q.finishedAt = Date.now();
+        pushFollowLog(q, {
+          ok: true,
+          note: `队列完成：${q.done} 成功 / ${q.failed} 失败`,
+        });
         await saveFollowQueue(q);
         return;
       }
@@ -249,6 +265,12 @@ async function pumpFollowQueue(): Promise<void> {
         q.lastError = null;
         failStreak = 0;
         deadStreak = 0;
+        pushFollowLog(q, {
+          h: item.h,
+          n: item.n,
+          ok: true,
+          note: res.ok ? "关注成功" : "跳过（自己/受保护）",
+        });
         // 成功关注 → 记入本机已关注名单（UI 圆环/标记/去重用）。
         if (res.ok && item?.h) {
           try {
@@ -266,6 +288,7 @@ async function pumpFollowQueue(): Promise<void> {
           q.invalid = (q.invalid ?? 0) + 1;
           q.lastError = `${res.reason ?? "账号已失效"}：@${item.h}`;
           deadStreak = 0;
+          pushFollowLog(q, { h: item.h, n: item.n, ok: false, note: res.reason ?? "账号已失效" });
           try {
             const { addInvalid } = await import("../lib/flj-sync");
             await addInvalid([item.h]);
@@ -277,6 +300,7 @@ async function pumpFollowQueue(): Promise<void> {
           q.running = false;
           q.finishedAt = Date.now();
           q.lastError = `${res.reason ?? "已达到关注上限"}——队列已停止`;
+          pushFollowLog(q, { h: item.h, n: item.n, ok: false, note: "已达到关注上限——队列停止" });
           await saveFollowQueue(q);
           return;
         } else {
@@ -284,6 +308,7 @@ async function pumpFollowQueue(): Promise<void> {
             res.status === 429
               ? "限流（429）——X 要求放慢速度"
               : (res.reason ?? (res.status ? `X 返回 ${res.status}（可能已关注）` : "关注未执行"));
+          pushFollowLog(q, { h: item.h, n: item.n, ok: false, note: q.lastError });
           // 限流熔断只看 retryable（429/5xx 等）。
           if (res.retryable) failStreak++;
           // 但「已关注」/登录态失效这类一次性失败也不该无限跑：ct0 过期时
@@ -294,6 +319,7 @@ async function pumpFollowQueue(): Promise<void> {
             q.running = false;
             q.finishedAt = Date.now();
             q.lastError = `连续 ${deadStreak} 次失败（多为已关注，或登录态已失效）——已暂停，刷新 x.com 后重新开始可从断点继续`;
+            pushFollowLog(q, { ok: false, note: `连续 ${deadStreak} 次失败——队列暂停` });
             await saveFollowQueue(q);
             return;
           }
@@ -303,6 +329,7 @@ async function pumpFollowQueue(): Promise<void> {
         q.running = false;
         q.finishedAt = Date.now();
         q.lastError = "连续限流失败过多，已停止——稍后再试";
+        pushFollowLog(q, { ok: false, note: "连续限流失败过多——队列停止" });
         await saveFollowQueue(q);
         return;
       }
@@ -775,6 +802,9 @@ export default defineBackground(() => {
                 q.running = true;
                 q.lastError = null;
                 q.finishedAt = null;
+                q.log = [];
+                await saveFollowQueue(q);
+                pushFollowLog(q, { ok: true, note: `队列开始，共 ${items.length} 位` });
                 await saveFollowQueue(q);
                 sendResponse({ ok: true, data: { total: items.length } });
                 void pumpFollowQueue();
