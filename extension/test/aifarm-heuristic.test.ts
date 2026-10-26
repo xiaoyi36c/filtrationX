@@ -269,6 +269,41 @@ test("24h 爆发但非对称网络或未开会员 → 不命中", () => {
   );
 });
 
+test("2026-10-26 @ImYanBoss 样本（对称互关 + 蓝标 + 副业/股票简介）→ 命中", () => {
+  const r = matchAifarmHeuristic(
+    sig({
+      handle: "ImYanBoss",
+      accountAgeDays: 400,
+      statusesCount: 3000,
+      followersCount: 8679,
+      followingCount: 8061,
+      isVerified: true,
+      bio: "分享生活 | 程序员 | 副业探索 ing | 股票研究 ing\n根据 Mi 姐秘籍做了个网站：miyanbo.im\n持续探索一切可能 ✨",
+      recentTweets: [],
+    }),
+  );
+  assert.ok(r, "verified follow-back KOL variant must hit");
+  assert.match(r?.[0] ?? "", /互关结构/);
+  assert.match(r?.[0] ?? "", /副业|股票/);
+});
+
+test("对称互关 + 蓝标但简介干净 → 不命中（防误伤正常互粉 KOL）", () => {
+  assert.equal(
+    matchAifarmHeuristic(
+      sig({
+        accountAgeDays: 400,
+        statusesCount: 3000,
+        followersCount: 8679,
+        followingCount: 8061,
+        isVerified: true,
+        bio: "插画师，接稿请私信",
+        recentTweets: ["new painting, oil on canvas"],
+      }),
+    ),
+    null,
+  );
+});
+
 test("小号互粉（不足 800）不判互关农场", () => {
   assert.equal(
     matchAifarmHeuristic(
