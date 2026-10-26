@@ -680,7 +680,6 @@ function XBlocksPage() {
   };
 
   const users = data?.users ?? [];
-  const [limit, setLimit] = useState(200);
   const rows = useMemo(
     () =>
       users.filter((u) =>
@@ -689,8 +688,15 @@ function XBlocksPage() {
     [users, q],
   );
   // 几万行 <tr>（头像 + 两个链接 + 按钮）一次性塞进 DOM 会把页面卡死；
-  // 只渲染前 limit 行，用「显示更多」按需追加。
-  const shown = useMemo(() => rows.slice(0, limit), [rows, limit]);
+  // 表格按页渲染，每页 200 行，翻页时只挂载当前页。
+  const PAGE_SIZE = 200;
+  const [page, setPage] = useState(1);
+  const pageCount = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
+  const cur = Math.min(page, pageCount);
+  const shown = useMemo(
+    () => rows.slice((cur - 1) * PAGE_SIZE, cur * PAGE_SIZE),
+    [rows, cur],
+  );
   const syncing = !!sync?.running;
 
   return (
@@ -704,7 +710,7 @@ function XBlocksPage() {
           value={q}
           onChange={(e) => {
             setQ(e.target.value);
-            setLimit(200);
+            setPage(1);
           }}
           placeholder={t("xb.search")}
           className="w-full max-w-[320px] rounded-md border border-border-2 bg-transparent px-3 py-2 text-[13px] outline-none transition focus:border-accent"
@@ -781,12 +787,29 @@ function XBlocksPage() {
         </div>
       )}
       {rows.length > shown.length && (
-        <div className="mt-3">
-          <Btn
-            onClick={() => setLimit((n) => n + 500)}
-          >
-            显示更多（还有 {(rows.length - shown.length).toLocaleString("zh-CN")} 个）
-          </Btn>
+        <div className="mt-3 flex items-center justify-between gap-3">
+          <span className="text-[12px] text-fg-3">
+            第 {(PAGE_SIZE * (cur - 1) + 1).toLocaleString("zh-CN")}–
+            {Math.min(PAGE_SIZE * cur, rows.length).toLocaleString("zh-CN")} 个 / 共{" "}
+            {rows.length.toLocaleString("zh-CN")} 个
+          </span>
+          <div className="flex items-center gap-2">
+            <Btn onClick={() => setPage(1)} disabled={cur === 1}>
+              首页
+            </Btn>
+            <Btn onClick={() => setPage((p) => Math.max(1, Math.min(p, pageCount) - 1))} disabled={cur === 1}>
+              上一页
+            </Btn>
+            <span className="text-[12px] text-fg-2">
+              {cur.toLocaleString("zh-CN")} / {pageCount.toLocaleString("zh-CN")} 页
+            </span>
+            <Btn onClick={() => setPage((p) => Math.min(pageCount, p + 1))} disabled={cur >= pageCount}>
+              下一页
+            </Btn>
+            <Btn onClick={() => setPage(pageCount)} disabled={cur >= pageCount}>
+              末页
+            </Btn>
+          </div>
         </div>
       )}
       {data && data.count > rows.length && (
