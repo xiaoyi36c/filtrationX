@@ -1,12 +1,7 @@
 {
   "version": 1,
-  "updatedAt": "2026-11-01T20:35:07.469Z",
+  "updatedAt": "2026-11-01T20:35:55.900Z",
   "rules": [
-    {
-      "pattern": "@JoseLalo0",
-      "field": "any",
-      "category": "porn"
-    },
     {
       "pattern": "@LindseyMan67567",
       "field": "tweet",
@@ -284,6 +279,11 @@
     },
     {
       "pattern": "@i0zDQbBh4W2rpZl",
+      "field": "any",
+      "category": "porn"
+    },
+    {
+      "pattern": "@Judy97913762",
       "field": "any",
       "category": "porn"
     }
