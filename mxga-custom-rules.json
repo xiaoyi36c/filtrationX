@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updatedAt": "2026-11-01T20:53:00.781Z",
+  "updatedAt": "2026-11-01T20:53:37.125Z",
   "rules": [
     {
       "pattern": "@JoseLalo0",
@@ -324,6 +324,11 @@
     },
     {
       "pattern": "@yukawill0116",
+      "field": "any",
+      "category": "porn"
+    },
+    {
+      "pattern": "@msxpoizon",
       "field": "any",
       "category": "porn"
     }
