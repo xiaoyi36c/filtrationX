@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updatedAt": "2026-11-01T20:35:55.900Z",
+  "updatedAt": "2026-11-01T20:36:44.067Z",
   "rules": [
     {
       "pattern": "@LindseyMan67567",
@@ -284,6 +284,11 @@
     },
     {
       "pattern": "@Judy97913762",
+      "field": "any",
+      "category": "porn"
+    },
+    {
+      "pattern": "@JoseLalo0",
       "field": "any",
       "category": "porn"
     }
